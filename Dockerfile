@@ -42,6 +42,8 @@ RUN sa-update --no-gpg
 # nobody
 ARG USERNAME=65534
 
+RUN mkdir -p /data && chown $USERNAME /data
+
 USER $USERNAME
 
 WORKDIR /usr/src/app

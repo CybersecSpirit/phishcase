@@ -1,103 +1,69 @@
-# EML analyzer
+# PhishCase
 
-[![Coverage Status](https://coveralls.io/repos/github/ninoseki/eml_analyzer/badge.svg?branch=master)](https://coveralls.io/github/ninoseki/eml_analyzer?branch=master)
+**Des emails suspects aux dossiers résolus.**
 
-EML analyzer is an application to analyze the EML file which can:
+PhishCase transforme [eml_analyzer](https://github.com/ninoseki/eml_analyzer) en espace d’investigation pour une équipe : dossiers, comptes, analyses persistantes et corrélation des IOC. Interface en français, backend FastAPI, frontend Vue et SQLite en mode WAL.
 
-- Analyze headers.
-- Analyze bodies.
-  - Extract IOCs (URLs, domains, IP addresses, emails) in bodies.
-- Analyze attachments.
-  - Identify whether attachments contain suspicious OLE files.
+## Fonctionnalités de cette première version
 
-## Installation
+- Connexion par session serveur de 8 heures, mots de passe scrypt, protection CSRF, limitation des tentatives de connexion et révocation des sessions.
+- Trois rôles : administrateur (gestion des comptes), analyste (investigation) et lecture seule.
+- Dossiers avec description, statut, priorité, responsable, notes et journal d’activité.
+- Import EML / MSG limité à 20 Mo par fichier. Conservation du fichier original, SHA-256, résultat du moteur et état de traitement.
+- Consultation des en-têtes, corps en texte inerte, verdicts et métadonnées des pièces jointes ; export JSON et téléchargement de l’original.
+- Extraction des URL, domaines, IP, adresses email et SHA-256 des pièces jointes. Déduplication et liens vers les dossiers où chaque IOC a été rencontré.
+- Qualification manuelle des IOC : à qualifier, bénin, suspect ou malveillant.
+- Tableau de bord et journal des modifications.
 
-### Docker
+## Démarrage avec l’image locale existante
 
-```bash
-git clone https://github.com/ninoseki/eml_analyzer.git
-cd eml_analyzer
-docker build . -t eml_analyzer
-docker run -i -d -p 8000:8000 eml_analyzer
+Prérequis : Docker Compose et l’image locale `eml_analyzer:latest`.
+
+```sh
+docker compose -p phishcase -f compose.phishcase.yml up -d --build
+docker compose -p phishcase -f compose.phishcase.yml exec phishcase python -m backend.investigation.store
 ```
 
-The application is running at: http://localhost:8000/ in your browser.
+La seconde commande crée un administrateur avec un mot de passe saisi interactivement (12 caractères minimum). Aucun compte ou mot de passe par défaut n’est livré dans le dépôt.
 
-### Docker Compose
+Ouvrir **http://localhost:8088**. Les données sont conservées dans le volume `phishcase_phishcase-data`. Un `down` conserve ce volume ; ne pas utiliser `down -v` si les données doivent être gardées.
 
-```bash
-git clone https://github.com/ninoseki/eml_analyzer.git
-cd eml_analyzer
-docker-compose up
+Le Dockerfile `Dockerfile.phishcase` réutilise le moteur de l’image locale et reconstruit l’interface. Pour reconstruire entièrement la base depuis les sources :
+
+```sh
+docker build -t eml_analyzer:latest -f Dockerfile .
+docker compose -p phishcase -f compose.phishcase.yml up -d --build
 ```
 
-### Docker vs. Docker compose
+## Configuration et fonctionnement
 
-- Docker:
-  - Run [Uvicorn](https://www.uvicorn.org/) and [SpamAssassin](https://spamassassin.apache.org/) in the same container. (The processes are managed by [Circus](https://circus.readthedocs.io/en/latest/))
-- Docker Compose:
-  - Run [Gunicorn](https://gunicorn.org/) and SpamAssassin in each container.
+| Variable | Usage |
+| --- | --- |
+| `INVESTIGATION_DB` | Fichier SQLite, `/data/phishcase.sqlite3` dans Compose |
+| `PHISHCASE_PORT` | Port local publié, `8088` par défaut |
+| `COOKIE_SECURE` | `true` par défaut dans le code ; `false` dans le Compose lié à `127.0.0.1` pour HTTP local |
 
-Thus Docker Compose is suitable for the production use.
+Pour un déploiement partagé, fournir HTTPS et `COOKIE_SECURE=true`. L’instance représente **une seule équipe** : tous les comptes actifs peuvent consulter tous les dossiers, originaux et rapports. Les rôles contrôlent les modifications, pas la visibilité par dossier. Il n’y a pas encore d’isolation multi-organisation, de SSO/MFA, de politique de rétention ou de chiffrement applicatif des preuves.
 
-## Configuration
+Le traitement utilise le moteur existant dans la requête HTTP, avec une échéance de 180 secondes. Les états sont persistants et la liste des analyses se rafraîchit toutes les cinq secondes. Une interruption au redémarrage est marquée en échec ; relancer en important l’original. Le déploiement fourni lance un seul processus API. Une file de travaux durable et plusieurs workers ne sont pas encore implémentés.
 
-Configuration can be done via environment variables.
+Les sources HTML des emails sont affichées comme texte : les liens et ressources de l’email ne sont pas chargés dans l’interface. Un résultat « terminé » indique la fin du traitement, pas l’innocuité du message. Les moteurs d’enrichissement facultatifs peuvent être absents ; leurs résultats dépendent des services configurés. Les réglages historiques sont documentés dans [docs/UPSTREAM.md](docs/UPSTREAM.md). Aucun service tiers n’est configuré avec une clé dans ce fork.
 
-Alternatively you can set values through `.env` file. Values in `.env` file will be automatically loaded.
+Les listes sont plafonnées à 500 dossiers / analyses, 1 000 IOC et 200 événements par dossier. Pagination complète, recherche avancée, pièces jointes téléchargeables séparément et exports STIX sont des suites possibles.
 
-| Key                          | Desc.                                           | Default     |
-| ---------------------------- | ----------------------------------------------- | ----------- |
-| `REDIS_EXPIRE`               | Redis cache expiration time (in seconds)        | 3600        |
-| `REDIS_KEY_PREFIX`           | Redis key prefix                                | `analysis`  |
-| `REDIS_URL`                  | Redis URL                                       | -           |
-| `REDIS_CACHE_LIST_AVAILABLE` | Expose a list of cached keys                    | True        |
-| `SPAMASSASSIN_HOST`          | SpamAssassin host                               | `127.0.0.1` |
-| `SPAMASSASSIN_PORT`          | SpamAssassin port                               | 783         |
-| `SPAMASSASSIN_TIMEOUT`       | SpamAssassin timeout (in seconds)               | 10          |
-| `URLSCAN_API_KEY`            | urlscan.io API Key                              | -           |
-| `VIRUSTOTAL_API_KEY`         | VirusTotal API Key                              | -           |
-| `ASYNC_MAX_AT_ONCE`          | Max number of concurrently running lookup tasks | `None`      |
-| `ASYNC_MAX_PER_SECOND`       | Max number of tasks spawned per second          | `None`      |
+## Tests
 
-## Development
+```sh
+# Dans un environnement avec les dépendances backend du projet :
+python -m unittest discover -s tests_workspace -v
 
-### Requirements
-
-- Python 3.12
-- Node.js v24
-- Docker & Docker Compose
-- Lefthook
-
-### Backend
-
-```bash
-# install dependencies
-uv sync
-# run test
-uv run pytest
-```
-
-### Frontend
-
-```bash
 cd frontend
-# install dependencies
-npm install
-# run test
-npm run test:unit
+npm ci
+npm run build
 ```
 
-### Linter
+Les tests PhishCase couvrent authentification/CSRF, rôles, révocation, protection des routes historiques, persistance, notes, analyse EML réelle, conservation de l’original, corrélation, échecs et limites d’import. Les tests historiques gardent leur fixture analyste authentifiée ; les contrôles de sécurité sont exercés séparément.
 
-```bash
-# setup pre-commit hooks
-lefthook install
-# run hooks manually
-lefthook run pre-commit --all-files
-```
+## Provenance
 
-## ToDo
-
-- [x] Support MSG format.
-- [ ] In-depth attachments analysis by using oletools.
+Fork de `ninoseki/eml_analyzer`, licence MIT conservée. Cette branche part du commit `093031e` correspondant au checkout local retrouvé avec l’image `eml_analyzer` SHA-256 `3d4535b1be5efe8045b8bcf4323b5ea105ccc16c5c3165e1435f627505113423`. Elle ne reprend pas automatiquement toutes les évolutions plus récentes de l’amont. Le workflow de déploiement Heroku historique est limité au dépôt d’origine.

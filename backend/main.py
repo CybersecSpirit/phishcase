@@ -9,10 +9,17 @@ from Secweb.ContentSecurityPolicy import ContentSecurityPolicy
 
 from backend import settings
 from backend.api.api import api_router
+from backend.investigation.api import router as investigation_router
+from backend.investigation.store import db, initialize
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    initialize()
+    with db() as conn:
+        conn.execute(
+            "UPDATE analyses SET status='failed', error='Service redémarré pendant cette analyse ; importer à nouveau le fichier.', finished_at=CURRENT_TIMESTAMP WHERE status IN ('running','queued')"
+        )
     app.state.redis = (
         Redis.from_url(str(settings.REDIS_URL)) if settings.REDIS_URL else None
     )
@@ -45,6 +52,9 @@ def create_app():
     )
 
     # add routes
+    app.include_router(
+        investigation_router, prefix="/api/workspace", tags=["PhishCase"]
+    )
     app.include_router(api_router, prefix="/api")
     app.mount("/", StaticFiles(html=True, directory="frontend/dist/"), name="index")
 

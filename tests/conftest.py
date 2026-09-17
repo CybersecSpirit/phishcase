@@ -8,6 +8,7 @@ from pytest_docker.plugin import Services
 from syncer import sync
 
 from backend import clients, factories, schemas
+from backend.investigation.auth import require_user
 from backend.main import create_app
 
 
@@ -138,4 +139,11 @@ def docx_attachment(encrypted_docx_eml: bytes) -> schemas.Attachment:
 @pytest.fixture
 def client() -> TestClient:
     app = create_app()
+    # Legacy parser endpoint tests use an authenticated analyst.
+    # Authentication and role enforcement are covered separately in tests_workspace.
+    app.dependency_overrides[require_user] = lambda: {
+        "id": 1,
+        "username": "test",
+        "role": "analyst",
+    }
     return TestClient(app)

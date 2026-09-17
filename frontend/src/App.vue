@@ -1,12 +1,4 @@
 <script setup lang="ts">
-import Navbar from '@/components/NavbarItem.vue'
+import Workspace from './views/WorkspaceView.vue'
 </script>
-
-<template>
-  <Navbar />
-  <section class="py-16">
-    <div class="container mx-auto px-4">
-      <router-view />
-    </div>
-  </section>
-</template>
+<template><Workspace /></template>

@@ -1,0 +1,19 @@
+# Fast local build on top of the user's existing eml_analyzer image.
+ARG ANALYZER_IMAGE=eml_analyzer:latest
+FROM node:24-alpine AS ui
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM ${ANALYZER_IMAGE}
+USER root
+RUN mkdir -p /data && chown 65534:65534 /data
+USER 65534
+WORKDIR /usr/src/app
+COPY --chown=65534:65534 backend/ ./backend/
+COPY --chown=65534:65534 circus.ini ./circus.ini
+COPY --chown=65534:65534 --from=ui /app/dist/ ./frontend/dist/
+ENV INVESTIGATION_DB=/data/phishcase.sqlite3
+ENV WEB_CONCURRENCY=1
