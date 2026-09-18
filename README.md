@@ -23,10 +23,9 @@ Prérequis : Docker Compose et l’image locale `eml_analyzer:latest`.
 
 ```sh
 docker compose -p phishcase -f compose.phishcase.yml up -d --build
-docker compose -p phishcase -f compose.phishcase.yml exec phishcase python -m backend.investigation.store
 ```
 
-La seconde commande crée un administrateur avec un mot de passe saisi interactivement (12 caractères minimum). Aucun compte ou mot de passe par défaut n’est livré dans le dépôt.
+Après le démarrage, créez le premier compte en suivant la section ci-dessous. Aucun compte ou mot de passe par défaut n’est livré dans le dépôt.
 
 Ouvrir **http://localhost:8088**. Les données sont conservées dans le volume `phishcase_phishcase-data`. Un `down` conserve ce volume ; ne pas utiliser `down -v` si les données doivent être gardées.
 
@@ -36,6 +35,23 @@ Le Dockerfile `Dockerfile.phishcase` réutilise le moteur de l’image locale et
 docker build -t eml_analyzer:latest -f Dockerfile .
 docker compose -p phishcase -f compose.phishcase.yml up -d --build
 ```
+
+## Créer le premier administrateur sur une nouvelle installation
+
+Depuis le dossier du projet, une fois le service PhishCase démarré, exécutez :
+
+```sh
+docker compose -p phishcase -f compose.phishcase.yml exec phishcase \
+  python -m backend.investigation.store
+```
+
+1. Saisissez un identifiant administrateur unique pour cette installation, par exemple `admin`.
+2. Saisissez un mot de passe d’au moins **12 caractères**. La saisie est masquée dans le terminal.
+3. Ouvrez **http://localhost:8088** et connectez-vous avec ces identifiants.
+
+Le compte est enregistré dans le volume de données Docker et conservé lors des redémarrages ou mises à jour. Chaque nouvelle installation avec un volume vide a ses propres comptes : les identifiants d’une autre installation ne sont pas importés depuis GitHub.
+
+La commande crée un compte supplémentaire ; elle ne réinitialise pas un compte existant. Si l’identifiant existe déjà, utilisez un autre identifiant. Après la première connexion, les autres comptes peuvent être créés depuis **Comptes** dans l’interface.
 
 ## Configuration et fonctionnement
 
