@@ -1,10 +1,13 @@
 import asyncio
+import base64
 import hashlib
 import json
 import secrets
 import sqlite3
 import time
+from datetime import UTC, datetime
 from typing import Literal
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
@@ -13,6 +16,7 @@ from pydantic import BaseModel, Field
 from backend import dependencies
 from backend.api.endpoints.analyze import _analyze
 
+from .assessment import summarize
 from .auth import Admin, User, Writer, secure_cookie
 from .store import audit, db, password_hash, password_matches
 
@@ -332,6 +336,12 @@ def get_analysis(analysis_id: str, user: User):
         result = dict(row)
         result.pop("source", None)
         result["result"] = json.loads(result["result"]) if result["result"] else None
+        if result["result"] is not None:
+            result["assessment"] = result["result"].get("assessment") or summarize(
+                result["result"]
+            )
+        else:
+            result["assessment"] = None
         return result
 
 
@@ -368,6 +378,42 @@ def extract_iocs(result):
     }
 
 
+async def read_email(file: UploadFile) -> tuple[bytes, str]:
+    filename = (
+        (file.filename or "message.eml").replace("\\", "/").rsplit("/", 1)[-1][:255]
+    )
+    if not filename.lower().endswith((".eml", ".msg")):
+        raise HTTPException(422, "Formats acceptés : EML et MSG")
+    raw = await file.read(20 * 1024 * 1024 + 1)
+    if len(raw) > 20 * 1024 * 1024:
+        raise HTTPException(413, "Fichier limité à 20 Mo")
+    if not raw:
+        raise HTTPException(422, "Fichier vide")
+    return raw, filename
+
+
+@router.post("/analyses", status_code=201)
+async def direct_upload(
+    file: UploadFile,
+    user: Writer,
+    spam_assassin: dependencies.SpamAssassin,
+    optional_email_rep: dependencies.OptionalEmailRep,
+    optional_vt: dependencies.OptionalVirusTotal,
+    optional_urlscan: dependencies.OptionalUrlScan,
+):
+    raw, filename = await read_email(file)
+    return await analyze_and_store(
+        None,
+        raw,
+        filename,
+        user,
+        spam_assassin,
+        optional_email_rep,
+        optional_vt,
+        optional_urlscan,
+    )
+
+
 @router.post("/cases/{case_id}/analyses", status_code=201)
 async def upload(
     case_id: int,
@@ -380,19 +426,65 @@ async def upload(
 ):
     with db() as conn:
         case_exists(conn, case_id)
-    raw = await file.read(20 * 1024 * 1024 + 1)
-    if len(raw) > 20 * 1024 * 1024:
-        raise HTTPException(413, "Fichier limité à 20 Mo")
-    if not raw:
-        raise HTTPException(422, "Fichier vide")
+    raw, filename = await read_email(file)
+    return await analyze_and_store(
+        case_id,
+        raw,
+        filename,
+        user,
+        spam_assassin,
+        optional_email_rep,
+        optional_vt,
+        optional_urlscan,
+    )
+
+
+def expected_engines(document, optional_email_rep, optional_vt, optional_urlscan):
+    expected = ["SpamAssassin", "oleid"]
+    if any(
+        k.lower() == "dkim-signature"
+        for k in document["eml"]["header"].get("header", {})
+    ):
+        expected.append("DKIM")
+    if optional_email_rep is not None and document["eml"]["header"].get("from_"):
+        expected.append("EmailRep")
+    if optional_vt is not None:
+        expected.append("VirusTotal")
+    if optional_urlscan is not None:
+        expected.append("urlscan.io")
+    return expected
+
+
+async def analyze_and_store(
+    case_id,
+    raw,
+    filename,
+    user,
+    spam_assassin,
+    optional_email_rep,
+    optional_vt,
+    optional_urlscan,
+):
     analysis_id = str(uuid4())
+    auto_title = None
+    date_prefix = datetime.now(UTC).strftime("%Y-%m-%d")
     with db() as conn:
+        if case_id is None:
+            auto_title = f"{date_prefix} · {filename}"[:200]
+            cursor = conn.execute(
+                "INSERT INTO cases(title,created_by,assignee_id) VALUES (?,?,?)",
+                (auto_title, user["id"], user["id"]),
+            )
+            case_id = cursor.lastrowid
+            audit(conn, user["id"], "case.created", case_id, auto_title)
+        else:
+            case_exists(conn, case_id)
         conn.execute(
             "INSERT INTO analyses(id,case_id,filename,sha256,status,created_by,source) VALUES (?,?,?,?,'running',?,?)",
             (
                 analysis_id,
                 case_id,
-                (file.filename or "message.eml")[:255],
+                filename,
                 hashlib.sha256(raw).hexdigest(),
                 user["id"],
                 raw,
@@ -411,7 +503,27 @@ async def upload(
             timeout=180,
         )
         document = result.model_dump(mode="json", by_alias=False)
+        document["assessment"] = summarize(
+            document,
+            expected=expected_engines(
+                document, optional_email_rep, optional_vt, optional_urlscan
+            ),
+        )
         with db() as conn:
+            if auto_title is not None:
+                subject = (
+                    " ".join(
+                        (document["eml"]["header"].get("subject") or filename).split()
+                    )
+                    or filename
+                )
+                title = f"{date_prefix} · {subject}"[:200]
+                cursor = conn.execute(
+                    "UPDATE cases SET title=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND title=?",
+                    (title, case_id, auto_title),
+                )
+                if cursor.rowcount and title != auto_title:
+                    audit(conn, user["id"], "case.named", case_id, title)
             conn.execute(
                 "UPDATE analyses SET status='completed',subject=?,result=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",
                 (
@@ -501,3 +613,26 @@ def source(analysis_id: str, user: User):
                 "X-Content-Type-Options": "nosniff",
             },
         )
+
+
+@router.get("/analyses/{analysis_id}/attachments/{attachment_index}")
+def attachment_source(analysis_id: str, attachment_index: int, user: User):
+    analysis = get_analysis(analysis_id, user)
+    attachments = (analysis["result"] or {}).get("eml", {}).get("attachments", [])
+    if attachment_index < 0 or attachment_index >= len(attachments):
+        raise HTTPException(404, "Pièce jointe introuvable")
+    attachment = attachments[attachment_index]
+    data = base64.b64decode(attachment["raw"], validate=True)
+    # Force a download; never render email-provided HTML/SVG or executable content inline.
+    name = attachment.get("filename") or f"piece-jointe-{attachment_index + 1}"
+    name = name.replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(c for c in name if c.isprintable())[:180] or "piece-jointe"
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f"attachment; filename=attachment-{attachment_index + 1}.bin; filename*=UTF-8''{quote(name, safe='')}",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+        },
+    )

@@ -1,6 +1,8 @@
 import os
 import tempfile
 import unittest
+from datetime import UTC, datetime
+from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
 
@@ -224,6 +226,144 @@ class WorkspaceTests(unittest.TestCase):
             ).status_code,
             413,
         )
+
+    def test_direct_upload_creates_named_case_and_keeps_original(self):
+        response = self.client.post(
+            "/api/workspace/analyses", files={"file": ("invoice.eml", EMAIL)}
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        analysis = response.json()
+        self.assertEqual(analysis["status"], "completed")
+        self.assertEqual(analysis["assessment"]["level"], "inconclusive")
+        case = self.client.get(
+            "/api/workspace/cases/" + str(analysis["case_id"])
+        ).json()
+        self.assertEqual(
+            case["title"], datetime.now(UTC).strftime("%Y-%m-%d") + " · Invoice review"
+        )
+        self.assertEqual(case["assignee_id"], 1)
+        self.assertEqual(
+            self.client.get(
+                "/api/workspace/analyses/" + analysis["id"] + "/source"
+            ).content,
+            EMAIL,
+        )
+        self.assertEqual(
+            self.client.get("/api/workspace/analyses/" + analysis["id"]).json()[
+                "assessment"
+            ],
+            analysis["assessment"],
+        )
+
+    def test_direct_invalid_files_do_not_create_empty_cases(self):
+        for name, content, expected in [
+            ("empty.eml", b"", 422),
+            ("bad.exe", EMAIL, 422),
+            ("big.eml", b"x" * (20 * 1024 * 1024 + 1), 413),
+        ]:
+            r = self.client.post(
+                "/api/workspace/analyses", files={"file": (name, content)}
+            )
+            self.assertEqual(r.status_code, expected)
+        self.assertEqual(self.client.get("/api/workspace/cases").json(), [])
+
+    def test_direct_failure_is_saved_with_filename(self):
+        async def fail(*args, **kwargs):
+            raise RuntimeError("malformed")
+
+        with patch("backend.investigation.api._analyze", fail):
+            r = self.client.post(
+                "/api/workspace/analyses", files={"file": ("broken.msg", EMAIL)}
+            )
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["status"], "failed")
+        case = self.client.get(
+            "/api/workspace/cases/" + str(r.json()["case_id"])
+        ).json()
+        self.assertTrue(case["title"].endswith(" · broken.msg"))
+        self.assertEqual(
+            self.client.get(
+                "/api/workspace/analyses/" + r.json()["id"] + "/source"
+            ).content,
+            EMAIL,
+        )
+
+    def test_repeated_uploads_have_distinct_cases(self):
+        results = [
+            self.client.post(
+                "/api/workspace/analyses", files={"file": ("same.eml", EMAIL)}
+            ).json()
+            for _ in range(2)
+        ]
+        self.assertNotEqual(results[0]["case_id"], results[1]["case_id"])
+        self.assertNotEqual(results[0]["id"], results[1]["id"])
+
+    def test_msg_direct_upload(self):
+        raw = Path("tests/fixtures/outer.msg").read_bytes()
+        r = self.client.post(
+            "/api/workspace/analyses", files={"file": ("outer.MSG", raw)}
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["status"], "completed", r.text[:800])
+        self.assertEqual(
+            self.client.get(
+                "/api/workspace/analyses/" + r.json()["id"] + "/source"
+            ).content,
+            raw,
+        )
+
+    def test_attachments_stay_in_same_case_and_download_as_attachment(self):
+        message = EmailMessage()
+        message["Subject"] = "Pièce jointe de test"
+        message["From"] = "sender@example.org"
+        message["To"] = "analyst@example.net"
+        message.set_content("Document de test, ne pas exécuter.")
+        payload = b'<script>alert("inert test")</script>'
+        message.add_attachment(
+            payload, maintype="text", subtype="html", filename="../rapport.html"
+        )
+        r = self.client.post(
+            "/api/workspace/analyses",
+            files={"file": ("attachment.eml", message.as_bytes())},
+        )
+        self.assertEqual(r.status_code, 201)
+        analysis = r.json()
+        self.assertEqual(analysis["status"], "completed", r.text)
+        self.assertEqual(len(self.client.get("/api/workspace/cases").json()), 1)
+        self.assertEqual(len(analysis["result"]["eml"]["attachments"]), 1)
+        path = "/api/workspace/analyses/" + analysis["id"] + "/attachments/0"
+        download = self.client.get(path)
+        self.assertEqual(download.content, payload)
+        self.assertTrue(
+            download.headers["content-disposition"].startswith("attachment;")
+        )
+        self.assertNotIn("../", download.headers["content-disposition"])
+        self.assertEqual(download.headers["content-type"], "application/octet-stream")
+        self.assertEqual(download.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(self.client.get(path[:-1] + "99").status_code, 404)
+        self.assertEqual(self.client.get(path[:-1] + "-1").status_code, 404)
+        self.assertEqual(TestClient(self.app).get(path).status_code, 401)
+        self.assertTrue(
+            self.client.get(
+                "/api/workspace/iocs?q="
+                + analysis["result"]["eml"]["attachments"][0]["hash"]["sha256"]
+            ).json()
+        )
+
+    def test_viewer_cannot_use_direct_upload(self):
+        self.client.post(
+            "/api/workspace/users",
+            json={"username": "viewer", "password": PASSWORD, "role": "viewer"},
+        )
+        viewer = TestClient(self.app, headers=HEADERS)
+        self.login("viewer", client=viewer)
+        self.assertEqual(
+            viewer.post(
+                "/api/workspace/analyses", files={"file": ("sample.eml", EMAIL)}
+            ).status_code,
+            403,
+        )
+        self.assertEqual(self.client.get("/api/workspace/cases").json(), [])
 
     def test_legacy_routes_require_authentication(self):
         from backend.main import create_app

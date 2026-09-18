@@ -9,8 +9,10 @@ PhishCase transforme [eml_analyzer](https://github.com/ninoseki/eml_analyzer) en
 - Connexion par session serveur de 8 heures, mots de passe scrypt, protection CSRF, limitation des tentatives de connexion et révocation des sessions.
 - Trois rôles : administrateur (gestion des comptes), analyste (investigation) et lecture seule.
 - Dossiers avec description, statut, priorité, responsable, notes et journal d’activité.
+- Accueil avec dépôt direct EML / MSG par glisser-déposer ou sélection multiple (jusqu’à 20 fichiers, traités séquentiellement). Un dossier par email est créé automatiquement sous le nom `date UTC d’analyse · objet du message` ; le nom du fichier sert de repli. Le formulaire de dossier préalable reste facultatif.
+- Résumé immédiat : détection malveillante remontée par un service de réputation, email suspect, aucun signal détecté ou résultat incomplet. Un échec DKIM ou un indicateur Office seul n’est pas qualifié de malware confirmé.
 - Import EML / MSG limité à 20 Mo par fichier. Conservation du fichier original, SHA-256, résultat du moteur et état de traitement.
-- Consultation des en-têtes, corps en texte inerte, verdicts et métadonnées des pièces jointes ; export JSON et téléchargement de l’original.
+- Consultation des en-têtes, corps en texte inerte, verdicts et métadonnées des pièces jointes ; export JSON et téléchargement de l’original ou de chaque pièce jointe. Les PJ restent rattachées à l’analyse et au même dossier, sans créer de dossier distinct ; leurs octets sont conservés en base64 dans le rapport persistant et elles sont servies comme téléchargements, jamais rendues en HTML.
 - Extraction des URL, domaines, IP, adresses email et SHA-256 des pièces jointes. Déduplication et liens vers les dossiers où chaque IOC a été rencontré.
 - Qualification manuelle des IOC : à qualifier, bénin, suspect ou malveillant.
 - Tableau de bord et journal des modifications.
@@ -49,7 +51,7 @@ Le traitement utilise le moteur existant dans la requête HTTP, avec une échéa
 
 Les sources HTML des emails sont affichées comme texte : les liens et ressources de l’email ne sont pas chargés dans l’interface. Un résultat « terminé » indique la fin du traitement, pas l’innocuité du message. Les moteurs d’enrichissement facultatifs peuvent être absents ; leurs résultats dépendent des services configurés. Les réglages historiques sont documentés dans [docs/UPSTREAM.md](docs/UPSTREAM.md). Aucun service tiers n’est configuré avec une clé dans ce fork.
 
-Les listes sont plafonnées à 500 dossiers / analyses, 1 000 IOC et 200 événements par dossier. Pagination complète, recherche avancée, pièces jointes téléchargeables séparément et exports STIX sont des suites possibles.
+Les listes sont plafonnées à 500 dossiers / analyses, 1 000 IOC et 200 événements par dossier. Pagination complète, recherche avancée, exports STIX et analyse dynamique en sandbox sont des suites possibles.
 
 ## Tests
 

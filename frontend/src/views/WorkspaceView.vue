@@ -1,6 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
+import AnalysisIntake from '@/components/AnalysisIntake.vue'
+
+type Assessment = {
+  level: string
+  label: string
+  explanation: string
+  reasons: string[]
+  reported_engines: string[]
+  missing_engines: string[]
+  scope: string
+}
 type User = { id: number; username: string; role: string; active: boolean }
 type Case = {
   id: number
@@ -46,6 +57,7 @@ type Analysis = {
   sha256: string
   created_at: string
   result?: Record<string, unknown>
+  assessment?: Assessment
 }
 type IOC = {
   id: number
@@ -68,7 +80,7 @@ const user = ref<User | null>(null),
   error = ref(''),
   busy = ref(false),
   uploading = ref(false)
-const tab = ref('dashboard'),
+const tab = ref('intake'),
   username = ref(''),
   password = ref(''),
   query = ref(''),
@@ -93,6 +105,7 @@ const occurrences = ref<{ id: string; filename: string; case_id: number; title: 
 )
 const writer = computed(() => user.value && user.value.role !== 'viewer')
 const tabs = computed(() => [
+  ['intake', 'Analyser un email'],
   ['dashboard', 'Vue d’ensemble'],
   ['cases', 'Dossiers'],
   ['analyses', 'Analyses'],
@@ -100,6 +113,7 @@ const tabs = computed(() => [
   ...(user.value?.role === 'admin' ? [['users', 'Comptes']] : [])
 ])
 const navIcons: Record<string, string> = {
+  intake: '↥',
   dashboard: '◫',
   cases: '▣',
   analyses: '≋',
@@ -212,10 +226,6 @@ async function openCase(id: number) {
     report.value = null
   })
 }
-async function startCase() {
-  await navigate('cases')
-  showCreate.value = true
-}
 function closeCase() {
   selected.value = null
   report.value = null
@@ -249,6 +259,19 @@ async function addNote() {
     await refresh()
   })
 }
+async function directUpload(file: File): Promise<Analysis> {
+  const form = new FormData()
+  form.append('file', file)
+  return api<Analysis>('/analyses', 'POST', form)
+}
+async function afterUpload() {
+  await act(refresh)
+}
+const reportElement = ref<HTMLElement | null>(null)
+async function revealReport() {
+  await nextTick()
+  reportElement.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 async function upload(event: Event) {
   const input = event.target as HTMLInputElement,
     file = input.files?.[0],
@@ -267,6 +290,7 @@ async function upload(event: Event) {
     const result = await api<Analysis>('/cases/' + caseId + '/analyses', 'POST', form)
     await refresh()
     report.value = result
+    await revealReport()
     if (result.status === 'failed') error.value = result.error || 'Analyse échouée'
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Échec de l’envoi'
@@ -278,6 +302,7 @@ async function upload(event: Event) {
 async function openReport(id: string) {
   await act(async () => {
     report.value = await api<Analysis>('/analyses/' + id)
+    await revealReport()
   })
 }
 async function verdict(ioc: IOC, event: Event) {
@@ -373,7 +398,7 @@ onUnmounted(() => {
     </div>
     <div v-else class="workspace">
       <aside class="sidebar">
-        <a href="#" class="brand" @click.prevent="navigate('dashboard')"
+        <a href="#" class="brand" @click.prevent="navigate('intake')"
           ><span class="brand-icon">P<span>↗</span></span
           >PhishCase<span class="brand-dot">.</span></a
         >
@@ -413,16 +438,24 @@ onUnmounted(() => {
           <div class="page-heading">
             <div>
               <p class="eyebrow">
-                {{ tab === 'dashboard' ? 'CHAQUE INDICE COMPTE' : 'PHISHCASE / INVESTIGATION' }}
+                {{
+                  tab === 'intake'
+                    ? 'UN EMAIL SUSPECT ?'
+                    : tab === 'dashboard'
+                      ? 'CHAQUE INDICE COMPTE'
+                      : 'PHISHCASE / INVESTIGATION'
+                }}
               </p>
               <h1>{{ selected ? selected.title : tabs.find((t) => t[0] === tab)?.[1] }}</h1>
               <p class="muted">
                 {{
-                  tab === 'dashboard'
-                    ? 'Votre activité, vos dossiers et les signaux à suivre.'
-                    : selected
-                      ? 'Dossier #' + selected.id + ' · preuves, analyses et chronologie'
-                      : 'Centralisez les éléments utiles à votre investigation.'
+                  tab === 'intake'
+                    ? 'Déposez votre email. Consultez le résultat. Retrouvez-le automatiquement dans son dossier.'
+                    : tab === 'dashboard'
+                      ? 'Votre activité, vos dossiers et les signaux à suivre.'
+                      : selected
+                        ? 'Dossier #' + selected.id + ' · preuves, analyses et chronologie'
+                        : 'Centralisez les éléments utiles à votre investigation.'
                 }}
               </p>
             </div>
@@ -436,6 +469,100 @@ onUnmounted(() => {
               ↻ Actualiser
             </button>
           </div>
+          <AnalysisIntake
+            v-show="tab === 'intake'"
+            :upload-file="directUpload"
+            :can-upload="!!writer"
+            @completed="afterUpload"
+            @open="openReport"
+            @case="openCase"
+          />
+          <section v-if="report" ref="reportElement" class="panel report">
+            <div class="panel-title">
+              <h2>{{ report.subject || report.filename }}</h2>
+              <div>
+                <button class="secondary" @click="exportReport">Exporter JSON</button>
+                <button class="secondary" @click="report = null">Fermer</button>
+              </div>
+            </div>
+            <div
+              v-if="report.assessment"
+              class="assessment-banner"
+              :data-state="report.assessment.level"
+              role="status"
+            >
+              <h2>{{ report.assessment.label }}</h2>
+              <p>{{ report.assessment.explanation }}</p>
+              <p v-if="report.assessment.missing_engines.length" class="small">
+                Contrôles sans résultat : {{ report.assessment.missing_engines.join(', ') }}
+              </p>
+              <small>{{ report.assessment.scope }}</small>
+            </div>
+            <button class="text-link" @click="openCase(report!.case_id)">
+              Retrouver dans le dossier #{{ report.case_id }} →
+            </button>
+            <p>
+              <span class="badge" :data-state="report.status">{{ labels[report.status] }}</span>
+            </p>
+            <p class="small muted hash">SHA-256 · {{ report.sha256 }}</p>
+            <p v-if="report.error" class="error">{{ report.error }}</p>
+            <a class="text-link" :href="'/api/workspace/analyses/' + report.id + '/source'" download
+              >Télécharger le fichier original →</a
+            >
+            <div v-if="emailReport" class="email-report">
+              <dl>
+                <dt>Expéditeur</dt>
+                <dd>{{ emailReport.eml.header.from_ }}</dd>
+                <dt>Destinataires</dt>
+                <dd>{{ emailReport.eml.header.to.join(', ') }}</dd>
+                <dt>Date du message</dt>
+                <dd>{{ emailReport.eml.header.date || 'Non renseignée' }}</dd>
+              </dl>
+              <h2>Résultats des moteurs</h2>
+              <p class="small muted" v-if="!emailReport.verdicts.length">
+                Aucun verdict disponible. L’absence de verdict ne signifie pas que cet email est
+                sûr.
+              </p>
+              <article v-for="(v, index) in emailReport.verdicts" :key="index" class="verdict">
+                <strong>{{ v.name }}</strong>
+                <span class="badge" :data-state="v.malicious ? 'malicious' : 'benign'">{{
+                  v.malicious ? 'Signal suspect' : 'Aucun signal détecté'
+                }}</span>
+                <p v-for="(d, j) in v.details" :key="j" class="small">
+                  {{ d.key }} · {{ d.description }}
+                </p>
+              </article>
+              <h2>Contenu de l’email</h2>
+              <details
+                v-for="(body, index) in emailReport.eml.bodies"
+                :key="index"
+                :open="body.content_type === 'text/plain'"
+              >
+                <summary>{{ body.content_type || 'Texte' }} · partie {{ index + 1 }}</summary>
+                <pre>{{ body.content }}</pre>
+              </details>
+              <h2>Pièces jointes · {{ emailReport.eml.attachments.length }}</h2>
+              <p class="small muted">
+                Conservées avec cet email dans le dossier #{{ report.case_id }}. Analyse statique
+                Office ; pas d’exécution en sandbox.
+              </p>
+              <article v-for="(a, index) in emailReport.eml.attachments" :key="index" class="note">
+                <strong>{{ a.filename }}</strong>
+                <a
+                  class="text-link attachment-download"
+                  :href="'/api/workspace/analyses/' + report.id + '/attachments/' + index"
+                  download
+                  >Télécharger la pièce jointe</a
+                >
+                <p class="small muted">{{ a.mime_type }} · {{ a.size }} octets</p>
+                <p class="hash small">SHA-256 · {{ a.hash.sha256 }}</p>
+              </article>
+            </div>
+            <details v-if="report.result">
+              <summary>Résultat complet de l’analyse</summary>
+              <pre>{{ JSON.stringify(report.result, null, 2) }}</pre>
+            </details>
+          </section>
           <template v-if="tab === 'dashboard' && dashboard">
             <div class="stats">
               <div
@@ -463,9 +590,9 @@ onUnmounted(() => {
                   Votre première investigation commence ici.<button
                     v-if="writer"
                     class="primary"
-                    @click="startCase"
+                    @click="navigate('intake')"
                   >
-                    Créer un dossier
+                    Analyser un email
                   </button>
                 </div>
                 <button
@@ -719,7 +846,7 @@ onUnmounted(() => {
               </tbody>
             </table>
             <p v-if="!analyses.length" class="empty">
-              Créez un dossier et importez un email pour lancer une analyse.
+              Déposez un email dans « Analyser un email » : son dossier sera créé automatiquement.
             </p>
           </section>
           <template v-if="tab === 'iocs'"
@@ -860,66 +987,6 @@ onUnmounted(() => {
               </table>
             </section></template
           >
-          <section v-if="report" class="panel report">
-            <div class="panel-title">
-              <h2>{{ report.subject || report.filename }}</h2>
-              <div>
-                <button class="secondary" @click="exportReport">Exporter JSON</button>
-                <button class="secondary" @click="report = null">Fermer</button>
-              </div>
-            </div>
-            <p>
-              <span class="badge" :data-state="report.status">{{ labels[report.status] }}</span>
-            </p>
-            <p class="small muted hash">SHA-256 · {{ report.sha256 }}</p>
-            <p v-if="report.error" class="error">{{ report.error }}</p>
-            <a class="text-link" :href="'/api/workspace/analyses/' + report.id + '/source'" download
-              >Télécharger le fichier original →</a
-            >
-            <div v-if="emailReport" class="email-report">
-              <dl>
-                <dt>Expéditeur</dt>
-                <dd>{{ emailReport.eml.header.from_ }}</dd>
-                <dt>Destinataires</dt>
-                <dd>{{ emailReport.eml.header.to.join(', ') }}</dd>
-                <dt>Date du message</dt>
-                <dd>{{ emailReport.eml.header.date || 'Non renseignée' }}</dd>
-              </dl>
-              <h2>Résultats des moteurs</h2>
-              <p class="small muted" v-if="!emailReport.verdicts.length">
-                Aucun verdict disponible. L’absence de verdict ne signifie pas que cet email est
-                sûr.
-              </p>
-              <article v-for="(v, index) in emailReport.verdicts" :key="index" class="verdict">
-                <strong>{{ v.name }}</strong>
-                <span class="badge" :data-state="v.malicious ? 'malicious' : 'benign'">{{
-                  v.malicious ? 'Signal suspect' : 'Aucun signal détecté'
-                }}</span>
-                <p v-for="(d, j) in v.details" :key="j" class="small">
-                  {{ d.key }} · {{ d.description }}
-                </p>
-              </article>
-              <h2>Contenu de l’email</h2>
-              <details
-                v-for="(body, index) in emailReport.eml.bodies"
-                :key="index"
-                :open="body.content_type === 'text/plain'"
-              >
-                <summary>{{ body.content_type || 'Texte' }} · partie {{ index + 1 }}</summary>
-                <pre>{{ body.content }}</pre>
-              </details>
-              <h2>Pièces jointes · {{ emailReport.eml.attachments.length }}</h2>
-              <article v-for="(a, index) in emailReport.eml.attachments" :key="index" class="note">
-                <strong>{{ a.filename }}</strong>
-                <p class="small muted">{{ a.mime_type }} · {{ a.size }} octets</p>
-                <p class="hash small">SHA-256 · {{ a.hash.sha256 }}</p>
-              </article>
-            </div>
-            <details v-if="report.result">
-              <summary>Résultat complet de l’analyse</summary>
-              <pre>{{ JSON.stringify(report.result, null, 2) }}</pre>
-            </details>
-          </section>
           <footer>PhishCase · Investigation email · Basé sur eml_analyzer</footer>
         </div>
       </main>
