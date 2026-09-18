@@ -1,0 +1,20 @@
+services:
+  phishcase:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: phishcase:local
+    command: ["circusd", "/usr/src/app/circus.ini"]
+    ports:
+      - "127.0.0.1:${PHISHCASE_PORT:-8088}:8000"
+    environment:
+      INVESTIGATION_DB: /data/phishcase.sqlite3
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      WEB_CONCURRENCY: "1"
+      SPAMD_USERNAME: nobody
+      SPAMD_GROUPNAME: nogroup
+    volumes:
+      - phishcase-data:/data
+    restart: unless-stopped
+volumes:
+  phishcase-data:

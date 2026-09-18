@@ -39,3 +39,8 @@ coverage.xml
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# PhishCase evidence and local build artifacts
+data/
+*.sqlite3*
+frontend/dist/

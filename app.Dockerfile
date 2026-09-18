@@ -41,6 +41,8 @@ WORKDIR /usr/src/app
 
 ARG USERNAME=nobody
 
+RUN mkdir -p /data && chown $USERNAME /data
+
 USER $USERNAME
 
 WORKDIR /usr/src/app
