@@ -26,6 +26,7 @@ L’envoi accepte jusqu’à **20 fichiers par sélection**, de **20 Mo maximum 
 | Analyses | Historique, état du traitement, en-têtes, corps du message, résultats des moteurs et pièces jointes |
 | Indicateurs | URL, domaines, IP, adresses email et SHA-256 des PJ ; déduplication et liens vers les dossiers concernés |
 | Vue d’ensemble | Dossiers ouverts, nombre d’analyses, IOC, échecs et activité récente |
+| Mon compte | MFA par application TOTP, codes de récupération et gestion de la sécurité personnelle |
 | Comptes | Création de comptes, rôles et activation/désactivation par un administrateur |
 
 Les IOC peuvent être qualifiés manuellement : **à qualifier**, **bénin**, **suspect** ou **malveillant**. Cette qualification est partagée pour le même IOC ; elle ne remplace pas les résultats des moteurs enregistrés dans les rapports.
@@ -107,6 +108,26 @@ Une instance correspond à **une seule équipe**. Tous les comptes actifs peuven
 
 Les mots de passe sont hachés avec scrypt. Les sessions serveur expirent après huit heures. Les écritures sont protégées contre les requêtes intersites ; les tentatives de connexion sont limitées. La modification des droits, la désactivation ou la réinitialisation du mot de passe d’un compte révoquent ses sessions.
 
+### Activer le MFA sur son compte
+
+Le MFA est **facultatif et individuel**, disponible pour les trois rôles. Les comptes existants restent utilisables après la mise à jour ; aucun téléphone n’est associé automatiquement.
+
+1. Connectez-vous puis ouvrez **Mon compte → Configurer le MFA**.
+2. Confirmez votre mot de passe actuel.
+3. Scannez le QR code avec Aegis, Google Authenticator, Microsoft Authenticator, 1Password ou une autre application TOTP. Une clé de saisie manuelle est aussi disponible.
+4. Saisissez le code à 6 chiffres pour confirmer l’activation, dans les 10 minutes.
+5. **Conservez les 10 codes de récupération** dans votre gestionnaire de mots de passe. Ils ne sont affichés qu’une seule fois et peuvent être téléchargés.
+
+Les connexions suivantes demandent le mot de passe, puis le code de l’application. En cas de perte du téléphone, choisissez **Utiliser un code de récupération** à cette deuxième étape. Chaque code de secours est utilisable une seule fois et ne remplace pas le mot de passe.
+
+Dans **Mon compte**, vous pouvez renouveler les codes de récupération ou désactiver le MFA en fournissant votre mot de passe et un code de l’application ou de récupération. Le renouvellement invalide tous les anciens codes. Ces opérations et l’activation révoquent les autres sessions, tout en renouvelant la session courante. Changer le mot de passe depuis **Comptes** ne désactive pas le MFA.
+
+Le TOTP utilise 6 chiffres, une période de 30 secondes et une tolérance d’une période de chaque côté. Les codes déjà acceptés sont refusés : attendez le code suivant après une activation ou une connexion. Gardez les horloges du serveur et du téléphone synchronisées. La deuxième étape expire après 5 minutes ; 5 tentatives MFA infructueuses dans une fenêtre de 15 minutes bloquent les nouvelles vérifications jusqu’à la fin de cette fenêtre, même en recommençant la connexion.
+
+Les QR codes sont générés localement, sans service externe. Les secrets TOTP sont chiffrés avec Fernet ; seuls les hachages des codes de récupération sont conservés. L’implémentation utilise [PyOTP](https://pyauth.github.io/pyotp/). Le MFA TOTP ne fournit pas la résistance au phishing des passkeys/WebAuthn, qui ne sont pas implémentées.
+
+Si le téléphone **et tous les codes de récupération** sont perdus, il n’existe pas de réinitialisation MFA depuis l’interface. Un opérateur disposant de l’accès au serveur peut créer un administrateur supplémentaire avec la commande documentée ci-dessus, puis désactiver l’ancien compte. Cette procédure ne récupère pas le facteur de l’ancien compte.
+
 ## Données et exploitation
 
 Les comptes, sessions, dossiers, rapports, originaux, PJ et IOC sont conservés dans SQLite, dans le volume **`phishcase_phishcase-data`** avec les commandes ci-dessus. Le chemin du fichier est `/data/phishcase.sqlite3`.
@@ -115,6 +136,12 @@ Les comptes, sessions, dossiers, rapports, originaux, PJ et IOC sont conservés 
 - **`docker compose ... down -v` supprime le volume et ses données.**
 - Les preuves et les identifiants locaux ne sont pas commités dans le dépôt.
 - Une sauvegarde doit couvrir la base SQLite. Utilisez une sauvegarde SQLite cohérente ou arrêtez le service avant de copier le contenu du volume ; ne copiez pas uniquement le fichier principal pendant des écritures en mode WAL.
+
+### Sauvegarder la clé MFA
+
+À la première configuration MFA, une clé est créée avec des permissions `0600` à côté de la base : **`/data/phishcase.sqlite3.mfa.key`** avec le Compose fourni. Elle persiste dans le même volume. **Sauvegardez et restaurez cette clé avec la base**, avec des accès restreints. Une copie de la base seule ne permet pas de vérifier les TOTP ; les codes de récupération restent utilisables. L’application ne remplace pas silencieusement une clé perdue lorsqu’il existe des facteurs configurés.
+
+Pour séparer la clé de la sauvegarde de la base, vous pouvez fournir `MFA_ENCRYPTION_KEY` via votre gestionnaire de secrets et l’environnement du conteneur : il doit s’agir d’une clé Fernet valide (32 octets encodés en base64 URL-safe). Configurez-la **avant la première activation MFA** et conservez-la durablement. Modifier cette valeur ne rechiffre pas les facteurs existants. Ne la commitez pas et ne la changez pas à chaque redémarrage. Le chiffrement des facteurs ne protège pas contre un accès simultané à la base et à sa clé.
 
 ### Mettre à jour
 
@@ -134,6 +161,7 @@ Gardez le même nom de projet Compose (`-p phishcase`) pour réutiliser le même
 | --- | --- |
 | `PHISHCASE_PORT` | Port local publié, `8088` par défaut |
 | `INVESTIGATION_DB` | Chemin SQLite dans le conteneur, configuré à `/data/phishcase.sqlite3` par Compose |
+| `MFA_ENCRYPTION_KEY` | Facultatif : clé Fernet externe ; sinon clé persistante `INVESTIGATION_DB.mfa.key` générée automatiquement |
 | `COOKIE_SECURE` | `false` dans le Compose HTTP local ; utiliser `true` derrière HTTPS |
 | `SPAMASSASSIN_HOST`, `SPAMASSASSIN_PORT` | Adresse du moteur antispam ; le Dockerfile intégré utilise `127.0.0.1:7833` |
 | `VIRUSTOTAL_API_KEY`, `URLSCAN_API_KEY`, `EMAIL_REP_API_KEY` | Enrichissements externes facultatifs, non configurés par défaut |
@@ -179,7 +207,7 @@ uv run python -m unittest discover -s tests_workspace -v
 uv run ruff check backend/investigation tests_workspace
 ```
 
-Les tests PhishCase utilisent des bases temporaires et vérifient les permissions, l’analyse EML/MSG, la création automatique des dossiers, la conservation des preuves, les téléchargements, les échecs et la qualification prudente des résultats. Les tests historiques du moteur sont dans `tests/`. Le workflow **PhishCase checks** compile l’interface et exécute les tests dédiés sur `master`.
+Les tests PhishCase utilisent des bases temporaires et vérifient le MFA (activation, connexion, rejeu, expiration, limitation, récupération, chiffrement et migration), ainsi que les permissions, l’analyse EML/MSG, la création automatique des dossiers, la conservation des preuves, les téléchargements, les échecs et la qualification prudente des résultats. Les tests historiques du moteur sont dans `tests/`. Le workflow **PhishCase checks** compile l’interface et exécute les tests dédiés sur `master`.
 
 ## Périmètre actuel
 
@@ -187,7 +215,7 @@ PhishCase est une première version d’investigation mono-équipe. Les limites 
 
 - Traitement dans la requête HTTP avec une échéance de 180 secondes, sans file de travaux durable. Les analyses interrompues au redémarrage sont marquées en échec ; réimporter leur original pour les relancer.
 - Déploiement prévu pour un seul processus API ; pas de répartition sur plusieurs workers.
-- Pas d’isolation multi-organisation ou par dossier, de SSO/MFA, de chiffrement applicatif des preuves ou de politique de rétention automatique.
+- Pas d’isolation multi-organisation ou par dossier, de SSO, de passkeys/WebAuthn, de chiffrement applicatif des preuves ou de politique de rétention automatique.
 - Pas de sandbox, d’export STIX ou de verdict garantissant qu’un fichier est sûr.
 - Listes plafonnées à 500 dossiers/analyses, 1 000 IOC et 200 événements par dossier ; pagination complète à ajouter.
 

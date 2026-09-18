@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 
+import AccountSecurity from '@/components/AccountSecurity.vue'
 import AnalysisIntake from '@/components/AnalysisIntake.vue'
 
 type Assessment = {
@@ -80,6 +81,9 @@ const user = ref<User | null>(null),
   error = ref(''),
   busy = ref(false),
   uploading = ref(false)
+const mfaRequired = ref(false),
+  mfaCode = ref(''),
+  useRecovery = ref(false)
 const tab = ref('intake'),
   username = ref(''),
   password = ref(''),
@@ -110,6 +114,7 @@ const tabs = computed(() => [
   ['cases', 'Dossiers'],
   ['analyses', 'Analyses'],
   ['iocs', 'Indicateurs'],
+  ['security', 'Mon compte'],
   ...(user.value?.role === 'admin' ? [['users', 'Comptes']] : [])
 ])
 const navIcons: Record<string, string> = {
@@ -118,7 +123,8 @@ const navIcons: Record<string, string> = {
   cases: '▣',
   analyses: '≋',
   iocs: '⌘',
-  users: '◎'
+  users: '◎',
+  security: '⚿'
 }
 const labels: Record<string, string> = {
   open: 'Ouvert',
@@ -155,7 +161,10 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
     body: data === undefined ? undefined : form ? data : JSON.stringify(data)
   })
   if (!response.ok) {
-    if (response.status === 401) user.value = null
+    if (response.status === 401) {
+      user.value = null
+      mfaRequired.value = false
+    }
     const payload = await response.json().catch(() => ({}))
     throw new Error(
       typeof payload.detail === 'string' ? payload.detail : `Requête refusée (${response.status})`
@@ -191,11 +200,38 @@ async function refresh() {
 }
 async function login() {
   await act(async () => {
-    user.value = await api<User>('/auth/login', 'POST', {
+    const result = await api<User | { mfa_required: true }>('/auth/login', 'POST', {
       username: username.value,
       password: password.value
     })
     password.value = ''
+    if ('mfa_required' in result) {
+      mfaRequired.value = true
+      mfaCode.value = ''
+      useRecovery.value = false
+      user.value = null
+      return
+    }
+    user.value = result
+    mfaRequired.value = false
+    await refresh()
+  })
+}
+function toggleRecovery() {
+  useRecovery.value = !useRecovery.value
+  mfaCode.value = ''
+  error.value = ''
+}
+function restartLogin() {
+  mfaRequired.value = false
+  mfaCode.value = ''
+  error.value = ''
+}
+async function verifyMfa() {
+  await act(async () => {
+    user.value = await api<User>('/auth/mfa/verify', 'POST', { code: mfaCode.value })
+    mfaCode.value = ''
+    mfaRequired.value = false
     await refresh()
   })
 }
@@ -203,6 +239,9 @@ async function logout() {
   await act(async () => {
     await api('/auth/logout', 'POST')
     user.value = null
+    mfaRequired.value = false
+    mfaCode.value = ''
+    tab.value = 'intake'
     selected.value = null
     report.value = null
     cases.value = []
@@ -374,24 +413,63 @@ onUnmounted(() => {
   <div class="phishcase">
     <div v-if="!ready" class="login-shell">Chargement de PhishCase…</div>
     <div v-else-if="!user" class="login-shell">
-      <form class="login-card" @submit.prevent="login">
+      <form class="login-card" @submit.prevent="mfaRequired ? verifyMfa() : login()">
         <div class="brand-icon">P<span>↗</span></div>
         <p class="eyebrow">EMAIL INVESTIGATION WORKSPACE</p>
         <h1>PhishCase<span>.</span></h1>
         <p class="muted">Des emails suspects aux dossiers résolus.</p>
-        <label
-          >Identifiant<input v-model="username" autocomplete="username" required autofocus
-        /></label>
-        <label
-          >Mot de passe<input
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            required
-        /></label>
+        <template v-if="!mfaRequired">
+          <label
+            >Identifiant<input v-model="username" autocomplete="username" required autofocus
+          /></label>
+          <label
+            >Mot de passe<input
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              required
+          /></label>
+        </template>
+        <template v-else>
+          <h2>Vérification en deux étapes</h2>
+          <p class="muted">
+            {{
+              useRecovery
+                ? 'Saisissez un de vos codes de récupération. Il sera consommé après validation.'
+                : 'Saisissez le code à 6 chiffres de votre application d’authentification.'
+            }}
+          </p>
+          <label
+            >{{ useRecovery ? 'Code de récupération' : 'Code de l’application'
+            }}<input
+              :key="String(useRecovery)"
+              v-model="mfaCode"
+              :inputmode="useRecovery ? 'text' : 'numeric'"
+              :pattern="useRecovery ? undefined : '[0-9]{6}'"
+              :maxlength="useRecovery ? 64 : 6"
+              autocomplete="one-time-code"
+              spellcheck="false"
+              required
+              autofocus
+          /></label>
+          <button type="button" class="text-link" @click="toggleRecovery">
+            {{ useRecovery ? 'Utiliser mon application' : 'Utiliser un code de récupération' }}
+          </button>
+        </template>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <button class="primary" :disabled="busy">
-          {{ busy ? 'Connexion…' : 'Ouvrir mon espace →' }}
+          {{
+            busy ? 'Connexion…' : mfaRequired ? 'Vérifier et me connecter →' : 'Ouvrir mon espace →'
+          }}
+        </button>
+        <button
+          v-if="mfaRequired"
+          type="button"
+          class="secondary"
+          :disabled="busy"
+          @click="restartLogin"
+        >
+          Recommencer la connexion
         </button>
         <p class="small muted">Espace réservé à votre équipe d’investigation.</p>
       </form>
@@ -451,11 +529,13 @@ onUnmounted(() => {
                 {{
                   tab === 'intake'
                     ? 'Déposez votre email. Consultez le résultat. Retrouvez-le automatiquement dans son dossier.'
-                    : tab === 'dashboard'
-                      ? 'Votre activité, vos dossiers et les signaux à suivre.'
-                      : selected
-                        ? 'Dossier #' + selected.id + ' · preuves, analyses et chronologie'
-                        : 'Centralisez les éléments utiles à votre investigation.'
+                    : tab === 'security'
+                      ? 'Gérez la sécurité de votre compte et vos moyens de récupération.'
+                      : tab === 'dashboard'
+                        ? 'Votre activité, vos dossiers et les signaux à suivre.'
+                        : selected
+                          ? 'Dossier #' + selected.id + ' · preuves, analyses et chronologie'
+                          : 'Centralisez les éléments utiles à votre investigation.'
                 }}
               </p>
             </div>
@@ -469,6 +549,7 @@ onUnmounted(() => {
               ↻ Actualiser
             </button>
           </div>
+          <AccountSecurity v-if="tab === 'security'" :request="api" />
           <AnalysisIntake
             v-show="tab === 'intake'"
             :upload-file="directUpload"

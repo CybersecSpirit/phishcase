@@ -21,3 +21,13 @@ La construction de la version fusionnée utilise Python 3.14 et le lockfile fron
 - Tests historiques du moteur : 41 réussis, 1 ignoré et 72 sous-tests réussis ; avertissements de dépendances héritées présents.
 - Quarante-six tests frontend réussis ; compilation TypeScript/Vite et lint de l’interface PhishCase validés.
 - Démarrage HTTP et réponse PONG de SpamAssassin vérifiés dans un conteneur temporaire séparé. L’instance utilisateur n’est pas remplacée par cette validation.
+
+## MFA TOTP
+
+- 37 tests backend PhishCase réussis, dont 18 tests MFA : confirmation d’activation, mot de passe insuffisant seul, expiration des configurations et des connexions intermédiaires, refus du rejeu, tolérance d’horloge, récupération à usage unique y compris en concurrence, limitations persistantes, CSRF, révocation des sessions, rôles et comptes désactivés.
+- Migration de la base existante vérifiée : utilisateurs et sessions préexistants conservés. Le changement de mot de passe administrateur conserve le MFA et invalide les connexions intermédiaires.
+- Chiffrement et persistance des facteurs testés, clé locale en `0600`, clé externe testée. En l’absence de la clé, la vérification TOTP échoue sans créer de remplacement ; les codes de récupération restent utilisables.
+- 51 tests frontend réussis, dont cinq tests des parcours MFA : aucune donnée de l’espace chargée avant le second facteur, récupération et expiration, confirmation du premier code, affichage unique des codes de secours et désactivation avec vérification.
+- Ruff, ESLint, compilation TypeScript/Vite et construction Docker réussis. Le workflow CI exécute désormais aussi les tests frontend.
+- Volume de l’instance locale arrêté sauvegardé avant la mise à jour. Nouvelle image démarrée sur `127.0.0.1:8088` et page **Mon compte** vérifiée dans le navigateur avec la session existante. Le MFA du compte utilisateur reste non activé : l’utilisateur doit associer sa propre application.
+- Les tests d’activation/connexion MFA utilisent des comptes temporaires ; aucun téléphone réel n’a été associé pendant cette validation.

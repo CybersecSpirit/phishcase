@@ -155,3 +155,5 @@ pnpm-debug.log*
 # PhishCase runtime data
 data/
 *.sqlite3*
+
+*.mfa.key

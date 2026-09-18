@@ -2,9 +2,7 @@ import asyncio
 import base64
 import hashlib
 import json
-import secrets
 import sqlite3
-import time
 from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import quote
@@ -17,10 +15,22 @@ from backend import dependencies
 from backend.api.endpoints.analyze import _analyze
 
 from .assessment import summarize
-from .auth import Admin, User, Writer, secure_cookie
+from .auth import (
+    Admin,
+    User,
+    Writer,
+    csrf,
+    issue_session,
+    revoke_auth,
+    secure_cookie,
+    throttle,
+)
+from .mfa import begin_challenge
+from .mfa import router as mfa_router
 from .store import audit, db, password_hash, password_matches
 
 router = APIRouter()
+router.include_router(mfa_router)
 
 
 class Login(BaseModel):
@@ -75,26 +85,11 @@ def validate_assignee(conn, user_id):
 
 @router.post("/auth/login")
 def login(data: Login, request: Request, response: Response):
-    if request.headers.get("x-requested-with") != "EML-Investigation":
-        raise HTTPException(403, "En-tête de protection CSRF requis")
+    csrf(request)
     identity = data.username.lower()
     with db() as conn:
-        # Serialize attempts; persistent throttling also works across API workers.
         conn.execute("BEGIN IMMEDIATE")
-        attempt = conn.execute(
-            "SELECT * FROM login_attempts WHERE identity=?", (identity,)
-        ).fetchone()
-        now = time.time()
-        if attempt and now - attempt["window"] < 900 and attempt["count"] >= 10:
-            raise HTTPException(429, "Trop de tentatives. Réessayer dans 15 minutes.")
-        if not attempt or now - attempt["window"] >= 900:
-            conn.execute(
-                "INSERT OR REPLACE INTO login_attempts VALUES (?,1,?)", (identity, now)
-            )
-        else:
-            conn.execute(
-                "UPDATE login_attempts SET count=count+1 WHERE identity=?", (identity,)
-            )
+        throttle(conn, identity)
         user = conn.execute(
             "SELECT * FROM users WHERE username=?", (data.username,)
         ).fetchone()
@@ -105,23 +100,12 @@ def login(data: Login, request: Request, response: Response):
         if not user or not valid or not user["active"]:
             conn.commit()  # Failed attempts must survive the HTTP error.
             raise HTTPException(401, "Identifiants invalides")
-        token = secrets.token_urlsafe(32)
-        conn.execute("DELETE FROM sessions WHERE expires<=?", (now,))
-        conn.execute(
-            "INSERT INTO sessions VALUES (?,?,?)",
-            (hashlib.sha256(token.encode()).hexdigest(), user["id"], now + 28800),
-        )
         conn.execute("DELETE FROM login_attempts WHERE identity=?", (identity,))
+        if user["mfa_secret"]:
+            # A correct password is only a first step, never a full session.
+            return begin_challenge(conn, user, request, response)
         audit(conn, user["id"], "login")
-    response.set_cookie(
-        "eml_session",
-        token,
-        httponly=True,
-        secure=secure_cookie(),
-        samesite="strict",
-        max_age=28800,
-    )
-    return {"id": user["id"], "username": user["username"], "role": user["role"]}
+        return issue_session(conn, user, response)
 
 
 @router.get("/auth/me")
@@ -152,7 +136,7 @@ def users(user: User):
         return [
             dict(r)
             for r in conn.execute(
-                "SELECT id,username,role,active,created_at FROM users ORDER BY username"
+                "SELECT id,username,role,active,created_at,(mfa_secret IS NOT NULL) AS mfa_enabled FROM users ORDER BY username"
             )
         ]
 
@@ -191,7 +175,7 @@ def update_user(user_id: int, data: UserUpdate, user: Admin):
                 "UPDATE users SET password=? WHERE id=?",
                 (password_hash(data.password), user_id),
             )
-        conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
+        revoke_auth(conn, user_id)
         audit(conn, user["id"], "user.updated", detail=target["username"])
     return {"ok": True}
 

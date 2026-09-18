@@ -6,6 +6,8 @@ on:
     paths:
       - 'backend/investigation/**'
       - 'tests_workspace/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - 'frontend/**'
       - '.github/workflows/phishcase.yml'
 permissions:
@@ -26,6 +28,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libmagic1
       - run: pip install -r requirements.txt && uv sync --frozen
       - run: npm ci && npm run build
+        working-directory: frontend
+      - run: npx vitest run
         working-directory: frontend
       - run: uv run ruff check backend/investigation tests_workspace
       - run: uv run python -m unittest discover -s tests_workspace -v

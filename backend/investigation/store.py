@@ -70,6 +70,14 @@ def initialize():
           action TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE IF NOT EXISTS login_attempts (
           identity TEXT PRIMARY KEY, count INTEGER NOT NULL, window REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS mfa_challenges (
+          token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS mfa_pending (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id), secret TEXT NOT NULL,
+          session_token TEXT NOT NULL, expires REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS mfa_recovery (
+          user_id INTEGER NOT NULL REFERENCES users(id), digest TEXT NOT NULL,
+          PRIMARY KEY(user_id,digest));
         CREATE INDEX IF NOT EXISTS analyses_case ON analyses(case_id);
         CREATE INDEX IF NOT EXISTS events_case ON events(case_id);
         """)
@@ -77,6 +85,14 @@ def initialize():
         columns = {row[1] for row in conn.execute("PRAGMA table_info(analyses)")}
         if "source" not in columns:
             conn.execute("ALTER TABLE analyses ADD COLUMN source BLOB")
+
+        user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+        for name, definition in (
+            ("mfa_secret", "TEXT"),
+            ("mfa_last_step", "INTEGER NOT NULL DEFAULT -1"),
+        ):
+            if name not in user_columns:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
 
 
 def audit(conn, actor, action, case_id=None, detail=""):
