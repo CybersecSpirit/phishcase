@@ -1,5 +1,8 @@
 /** French message IDs with English translations; placeholders are shared between locales. */
 export const messages: Record<string, string> = {
+  Actions: 'Actions',
+  Menu: 'Menu',
+  'Fermer le menu': 'Close menu',
   '+ Nouveau dossier': '+ New case',
   '30 derniers événements': 'Latest 30 events',
   Actif: 'Active',

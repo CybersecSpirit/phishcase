@@ -104,6 +104,30 @@ const options = {
   global: { stubs: { AnalysisIntake: true, AnalystDecision: true, InvestigationContext: true } }
 }
 describe('shareable workspace navigation and pagination', () => {
+  it('opens the mobile disclosure and closes it on navigation or Escape', async () => {
+    stubApi()
+    const wrapper = mount(WorkspaceView, { ...options, attachTo: document.body })
+    await flushPromises()
+    const menu = wrapper.get('.mobile-menu-button')
+    expect(menu.attributes('aria-expanded')).toBe('false')
+    await menu.trigger('click')
+    expect(menu.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('#workspace-navigation').classes()).toContain('is-open')
+    const overview = wrapper
+      .findAll('.sidebar nav button')
+      .find((node) => node.text().includes('Vue d’ensemble'))
+    expect(overview).toBeDefined()
+    await overview!.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/dashboard')
+    expect(menu.attributes('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(menu.element)
+    await menu.trigger('click')
+    await wrapper.get('.sidebar').trigger('keydown', { key: 'Escape' })
+    expect(menu.attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
   it('shows actionable dashboard work and keeps frequent indicators inert', async () => {
     stubApi()
     await router.replace('/dashboard')

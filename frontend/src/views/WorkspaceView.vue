@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import AccountSecurity from '@/components/AccountSecurity.vue'
+import ActionMenu from '@/components/ActionMenu.vue'
 import AnalysisIntake from '@/components/AnalysisIntake.vue'
 import AnalystDecision from '@/components/AnalystDecision.vue'
 import CampaignWorkspace from '@/components/CampaignWorkspace.vue'
@@ -11,6 +12,7 @@ import InvestigationContext from '@/components/InvestigationContext.vue'
 import PaginationControls from '@/components/PaginationControls.vue'
 import { errorMessage, RequestError } from '@/errors'
 import { locale, setLocale, setLocaleUser, t } from '@/i18n'
+import { vResponsiveTable } from '@/responsiveTable'
 import router from '@/router'
 import { defang, emptyPage, eventMessages, type Page, pageQuery } from '@/workspace'
 
@@ -139,6 +141,14 @@ const user = ref<User | null>(null),
 const mfaRequired = ref(false),
   mfaCode = ref(''),
   useRecovery = ref(false)
+const mobileMenuOpen = ref(false)
+const mobileMenuButton = ref<HTMLButtonElement | null>(null)
+function closeMobileMenu() {
+  if (mobileMenuOpen.value) {
+    mobileMenuOpen.value = false
+    mobileMenuButton.value?.focus()
+  }
+}
 const tab = ref('intake'),
   username = ref(''),
   password = ref(''),
@@ -391,6 +401,7 @@ function followLink(event: MouseEvent, path: string) {
   void router.push(path)
 }
 async function navigate(value: string) {
+  closeMobileMenu()
   await router.push(value === 'intake' ? '/' : '/' + value)
 }
 async function openCase(id: number) {
@@ -697,40 +708,58 @@ onUnmounted(() => {
       </form>
     </div>
     <div v-else class="workspace">
-      <aside class="sidebar">
-        <a href="/" class="brand" @click.exact.prevent="navigate('intake')"
-          ><span class="brand-icon">P<span>↗</span></span
-          >PhishCase<span class="brand-dot">.</span></a
-        >
-        <p class="eyebrow">{{ t('ESPACE D’INVESTIGATION') }}</p>
-        <nav>
+      <aside class="sidebar" @keydown.esc="closeMobileMenu">
+        <div class="sidebar-heading">
+          <a href="/" class="brand" @click.exact.prevent="navigate('intake')"
+            ><span class="brand-icon">P<span>↗</span></span
+            >PhishCase<span class="brand-dot">.</span></a
+          >
           <button
-            v-for="[id, label] in tabs"
-            :key="id"
-            :class="{ active: tab === id }"
-            @click="navigate(id!)"
+            ref="mobileMenuButton"
+            class="mobile-menu-button"
+            type="button"
+            aria-controls="workspace-navigation"
+            :aria-expanded="mobileMenuOpen"
+            @click="mobileMenuOpen = !mobileMenuOpen"
           >
-            <span class="nav-symbol">{{ navIcons[id!] }}</span
-            >{{ label
-            }}<span v-if="id === 'cases'" class="count">{{ dashboard?.open_cases || 0 }}</span>
+            {{ mobileMenuOpen ? t('Fermer le menu') : t('Menu') }}
           </button>
-          <a
-            v-for="link in extensions.navigation"
-            :key="link.url"
-            class="extension-nav"
-            :href="link.url"
-            ><span class="nav-symbol">↗</span>{{ t(link.label) }}</a
-          >
-        </nav>
-        <div class="sidebar-bottom">
-          <div class="avatar">{{ user.username.slice(0, 2).toUpperCase() }}</div>
-          <div>
-            <strong>{{ user.username }}</strong
-            ><small>{{ labels[user.role] }}</small>
+        </div>
+        <div
+          id="workspace-navigation"
+          class="sidebar-navigation"
+          :class="{ 'is-open': mobileMenuOpen }"
+        >
+          <p class="eyebrow">{{ t('ESPACE D’INVESTIGATION') }}</p>
+          <nav>
+            <button
+              v-for="[id, label] in tabs"
+              :key="id"
+              :class="{ active: tab === id }"
+              @click="navigate(id!)"
+            >
+              <span class="nav-symbol">{{ navIcons[id!] }}</span
+              >{{ label
+              }}<span v-if="id === 'cases'" class="count">{{ dashboard?.open_cases || 0 }}</span>
+            </button>
+            <a
+              v-for="link in extensions.navigation"
+              :key="link.url"
+              class="extension-nav"
+              :href="link.url"
+              ><span class="nav-symbol">↗</span>{{ t(link.label) }}</a
+            >
+          </nav>
+          <div class="sidebar-bottom">
+            <div class="avatar">{{ user.username.slice(0, 2).toUpperCase() }}</div>
+            <div>
+              <strong>{{ user.username }}</strong
+              ><small>{{ labels[user.role] }}</small>
+            </div>
+            <button :title="t('Déconnexion')" :aria-label="t('Déconnexion')" @click="logout">
+              ↪
+            </button>
           </div>
-          <button :title="t('Déconnexion')" :aria-label="t('Déconnexion')" @click="logout">
-            ↪
-          </button>
         </div>
       </aside>
       <main>
@@ -779,7 +808,7 @@ onUnmounted(() => {
               @click="showCreate = !showCreate"
             >
               {{ t('+ Nouveau dossier') }}</button
-            ><button v-else class="secondary" :disabled="busy" @click="act(refresh)">
+            ><button v-else class="quiet-button" :disabled="busy" @click="act(refresh)">
               {{ t('↻ Actualiser') }}
             </button>
           </div>
@@ -804,24 +833,24 @@ onUnmounted(() => {
           <section v-if="report" ref="reportElement" class="panel report">
             <div class="panel-title">
               <h2>{{ report.subject || report.filename }}</h2>
-              <div>
+              <ActionMenu>
                 <a
-                  class="secondary"
+                  class="menu-item"
                   :href="'/api/workspace/analyses/' + report.id + '/export.json'"
                   download
                   >{{ t('Exporter JSON') }}</a
                 >
                 <a
-                  class="secondary"
+                  class="menu-item"
                   :href="'/api/workspace/analyses/' + report.id + '/export.html?locale=' + locale"
                   download
                   >{{ t('Rapport HTML') }}</a
                 >
-                <a class="secondary" :href="evidenceDownload" download>{{
+                <a class="menu-item" :href="evidenceDownload" download>{{
                   t('Télécharger le paquet de preuves')
                 }}</a>
-                <button class="secondary" @click="navigate('analyses')">{{ t('Fermer') }}</button>
-              </div>
+                <button class="menu-item" @click="navigate('analyses')">{{ t('Fermer') }}</button>
+              </ActionMenu>
             </div>
             <div
               v-if="report.assessment"
@@ -1255,7 +1284,7 @@ onUnmounted(() => {
                 ><button class="secondary">{{ t('Rechercher') }}</button>
               </form>
               <div class="panel table-wrap">
-                <table>
+                <table v-responsive-table>
                   <thead>
                     <tr>
                       <th>{{ t('Dossier') }}</th>
@@ -1312,7 +1341,7 @@ onUnmounted(() => {
                 </option></select
               ><button class="secondary">{{ t('Rechercher') }}</button>
             </form>
-            <table>
+            <table v-responsive-table>
               <thead>
                 <tr>
                   <th>{{ t('Email') }}</th>
@@ -1369,7 +1398,7 @@ onUnmounted(() => {
               /><button class="secondary">{{ t('Rechercher') }}</button>
             </form>
             <section class="panel table-wrap">
-              <table>
+              <table v-responsive-table>
                 <thead>
                   <tr>
                     <th>{{ t('Type') }}</th>
@@ -1489,7 +1518,7 @@ onUnmounted(() => {
               </div>
             </form>
             <section class="panel table-wrap">
-              <table>
+              <table v-responsive-table>
                 <thead>
                   <tr>
                     <th>{{ t('Compte') }}</th>

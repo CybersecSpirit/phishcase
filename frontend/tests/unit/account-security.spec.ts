@@ -1,8 +1,8 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { setLocale } from '@/i18n'
 import AccountSecurity from '@/components/AccountSecurity.vue'
+import { setLocale } from '@/i18n'
 
 beforeEach(() => {
   localStorage.setItem('phishcase.locale.1', 'fr')
