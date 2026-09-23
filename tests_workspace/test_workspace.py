@@ -242,9 +242,12 @@ class WorkspaceTests(unittest.TestCase):
         )
 
     def test_direct_upload_creates_named_case_and_keeps_original(self):
-        response = self.upload(
-            "/api/workspace/analyses", files={"file": ("invoice.eml", EMAIL)}
-        )
+        # Exercise missing coverage explicitly, independent of a developer/CI
+        # SpamAssassin service. Engine availability is tested separately.
+        with patch("backend.dependencies.get_spam_assassin", return_value=None):
+            response = self.upload(
+                "/api/workspace/analyses", files={"file": ("invoice.eml", EMAIL)}
+            )
         self.assertEqual(response.status_code, 200, response.text)
         analysis = response.json()
         self.assertEqual(analysis["status"], "completed")
