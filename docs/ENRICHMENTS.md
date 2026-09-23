@@ -2,6 +2,8 @@
 
 PhishCase analyses remain usable without provider credentials. External enrichment is an explicit analyst action on an existing analysis. A missing report is an **unknown result**, never an instruction to upload evidence. Provider observations do not modify the original email, attachment bytes or an analyst verdict.
 
+The ingestion parser always uses a local-only policy, including when the server is in `restricted` or `connected` mode and lookup flags are enabled. It instantiates no VirusTotal, urlscan or EmailRep client and performs no DKIM DNS lookup. Only loopback SpamAssassin and static parsing run at ingestion. Provider permissions enable the explicit enrichment endpoints below; they never enable automatic calls from parsing or retries. Those endpoints enforce target selection, permissions, persisted request budgets and audit trails.
+
 The contract from draft PR #1 (`feature/v2-investigation-foundations`) was reviewed and adapted; the draft was not merged. Its policy, target, result, lookup and submit interfaces and four policy tests are retained, with `poll`, `normalize`, `healthcheck`, persistent results and concrete providers added.
 
 ## Configuration and sharing

@@ -29,8 +29,8 @@ to the analysis URL. Omit attachments to include none in the evidence package.
 Lists support `page` and `page_size` and return
 `{"items":[],"total":0,"page":1,"page_size":50,"pages":0}`. Exact page-size
 bounds are returned by validation errors. Follow server totals, not a fixed ceiling.
-Filters/search are bound SQL parameters, never query fragments. Lists without
-`page` retain the earlier array format; clients should migrate to pagination.
+Filters/search are bound SQL parameters, never query fragments. When `page`,
+`page_size` and `limit` are all omitted, lists retain the earlier array format only up to 500 matching items. Above that boundary the server returns 422 with an instruction to use `page=1&page_size=50`; it never silently truncates or loads the complete legacy result. Pagination totals and subsequent pages remain exhaustive.
 
 Responses distinguish 401 (authentication), 403 (role/policy), 404 (missing object),
 409 (state or idempotency conflict), 413 (body limit), 422 (input validation), and

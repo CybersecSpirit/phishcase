@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import zlib
 
 import httpx
 
@@ -26,7 +27,7 @@ class ProviderHTTP:
         self._api_key = api_key
         self._transport = transport
         self.timeout = min(max(timeout, 0.01), 30)
-        self.max_response_bytes = min(max_response_bytes, MAX_RESPONSE_BYTES)
+        self.max_response_bytes = max(1, min(max_response_bytes, MAX_RESPONSE_BYTES))
 
     async def request(self, method, path, **kwargs):
         # Paths come only from adapters, which validate all interpolated IDs.
@@ -43,6 +44,7 @@ class ProviderHTTP:
                         self.key_header: self._api_key,
                         "User-Agent": "PhishCase-Community/1",
                         "Accept": "application/json",
+                        "Accept-Encoding": "identity",
                     },
                 ) as client:
                     async with client.stream(
@@ -53,7 +55,7 @@ class ProviderHTTP:
             raise ProviderError("timeout") from None
         except httpx.HTTPError:
             raise ProviderError("network_error") from None
-        except ValueError, UnicodeError, RecursionError:
+        except ValueError, UnicodeError, RecursionError, zlib.error:
             raise ProviderError("invalid_response") from None
 
     async def decode(self, response):
@@ -65,15 +67,41 @@ class ProviderHTTP:
             raise ProviderError("credentials_or_plan_rejected")
         if not 200 <= response.status_code < 300:
             raise ProviderError("request_rejected")
-        content = bytearray()
-        async for chunk in response.aiter_bytes():
-            if len(content) + len(chunk) > self.max_response_bytes:
-                raise ProviderError("response_too_large")
-            content.extend(chunk)
+        content = await self.read_body(response)
         data = json.loads(content)
         if not isinstance(data, dict):
             raise ProviderError("invalid_response")
         return response.status_code, data
+
+    async def read_body(self, response):
+        encoding = response.headers.get("content-encoding", "identity").strip().lower()
+        if encoding not in {"identity", "gzip"}:
+            raise ProviderError("invalid_response")
+        decoder = (
+            zlib.decompressobj(16 + zlib.MAX_WBITS) if encoding == "gzip" else None
+        )
+        content = bytearray()
+        wire_bytes = 0
+        # HTTPX's aiter_bytes decodes a complete compressed chunk before yielding it.
+        # Read raw bytes instead and bound both wire size and every zlib allocation.
+        async for chunk in response.aiter_raw(chunk_size=64 * 1024):
+            wire_bytes += len(chunk)
+            if wire_bytes > self.max_response_bytes:
+                raise ProviderError("response_too_large")
+            if decoder is not None:
+                chunk = decoder.decompress(
+                    chunk, self.max_response_bytes - len(content) + 1
+                )
+            if len(content) + len(chunk) > self.max_response_bytes:
+                raise ProviderError("response_too_large")
+            content.extend(chunk)
+            if decoder is not None and decoder.unused_data:
+                # Reject trailing bytes and concatenated members instead of silently
+                # parsing just the first stream or starting an unbounded decoder.
+                raise ProviderError("invalid_response")
+        if decoder is not None and not decoder.eof:
+            raise ProviderError("invalid_response")
+        return content
 
 
 def count(value):

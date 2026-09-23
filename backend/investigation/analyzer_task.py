@@ -5,7 +5,6 @@ import json
 import os
 import resource
 import sys
-from contextlib import AsyncExitStack
 from pathlib import Path
 
 
@@ -19,40 +18,32 @@ def limits():
 
 
 async def analyze(raw):
-    from backend import clients, settings
     from backend.api.endpoints.analyze import _analyze
     from backend.dependencies import get_spam_assassin
     from backend.investigation.assessment import summarize
-    from backend.investigation.connectivity import lookups_allowed
+    from backend.investigation.connectivity import policy_factory
     from backend.investigation.processing import expected_engines
 
-    async with AsyncExitStack() as stack:
-        vt = urlscan = emailrep = None
-        if lookups_allowed():
-            if settings.VIRUSTOTAL_API_KEY:
-                vt = await stack.enter_async_context(
-                    clients.VirusTotal(apikey=str(settings.VIRUSTOTAL_API_KEY))
-                )
-            if settings.URLSCAN_API_KEY:
-                urlscan = await stack.enter_async_context(
-                    clients.UrlScan(api_key=settings.URLSCAN_API_KEY)
-                )
-            if settings.EMAIL_REP_API_KEY:
-                emailrep = await stack.enter_async_context(
-                    clients.EmailRep(api_key=settings.EMAIL_REP_API_KEY)
-                )
+    # Parsing never performs provider lookups or DNS verification. The explicit
+    # enrichment API owns policy, budgets, evidence selection and audit trails.
+    local_policy = policy_factory.set(
+        lambda: {"mode": "offline", "lookups": {}, "submissions": {}}
+    )
+    try:
         result = await _analyze(
             raw,
             optional_spam_assassin=get_spam_assassin(),
-            optional_email_rep=emailrep,
-            optional_vt=vt,
-            optional_urlscan=urlscan,
+            optional_email_rep=None,
+            optional_vt=None,
+            optional_urlscan=None,
         )
         document = result.model_dump(mode="json", by_alias=False)
         document["assessment"] = summarize(
-            document, expected=expected_engines(document, emailrep, vt, urlscan)
+            document, expected=expected_engines(document, None, None, None)
         )
         return document
+    finally:
+        policy_factory.reset(local_policy)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import re
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from ..enrichment import EnrichmentResult, EnrichmentStatus, ProviderError, TargetKind
@@ -12,6 +13,26 @@ class UrlscanProvider(ProviderHTTP):
     key_header = "api-key"
     lookup_kinds = ("url", "domain", "ip")
     submission_kinds = ("url",)
+
+    @staticmethod
+    def url_identity(value):
+        """Normalize only scheme/authority; preserve the exact path, query and fragment."""
+        value = validate_target(TargetKind.URL, value).value
+        parsed = urlsplit(value)
+        remainder = value.split("://", 1)[1]
+        return f"{parsed.scheme}://{parsed.netloc.lower()}{remainder[len(parsed.netloc) :]}"
+
+    def verify_task_url(self, target, record):
+        if target.kind != TargetKind.URL:
+            return
+        try:
+            matches = self.url_identity(
+                mapping(record.get("task")).get("url")
+            ) == self.url_identity(target.value)
+        except ValueError, IndexError:
+            raise ProviderError("invalid_response") from None
+        if not matches:
+            raise ProviderError("invalid_response")
 
     @staticmethod
     def job_id(value):
@@ -32,7 +53,12 @@ class UrlscanProvider(ProviderHTTP):
         if not field:
             raise ProviderError("unsupported_target")
         # A single quoted literal, with every reserved Query String character escaped.
-        value = re.sub(r'([+\-=!(){}\[\]^"~*?:\\/<>|&])', r"\\\1", target.value.lower())
+        value = (
+            self.url_identity(target.value)
+            if target.kind == TargetKind.URL
+            else target.value
+        )
+        value = re.sub(r'([+\-=!(){}\[\]^"~*?:\\/<>|&])', r"\\\1", value)
         status, data = await self.request(
             "GET", "/api/v1/search/", params={"q": f'{field}:"{value}"', "size": 1}
         )
@@ -48,6 +74,7 @@ class UrlscanProvider(ProviderHTTP):
             raise ProviderError("invalid_response")
         # Read the existing scan only; a search miss must never create a scan.
         record = results[0]
+        self.verify_task_url(target, record)
         job = self.job_id(record.get("_id") or mapping(record.get("task")).get("uuid"))
         return await self.poll(target, job)
 
@@ -119,6 +146,7 @@ class UrlscanProvider(ProviderHTTP):
         return self.normalize(target, data)
 
     def normalize(self, target, data):
+        self.verify_task_url(target, data)
         task, page = mapping(data.get("task")), mapping(data.get("page"))
         job = self.job_id(task.get("uuid"))
         verdict = mapping(mapping(data.get("verdicts")).get("overall")) or mapping(

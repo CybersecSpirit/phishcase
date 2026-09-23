@@ -4,10 +4,10 @@ This is a validation record for the candidate branch, not a stable-release claim
 
 | Check | Observed result |
 | --- | --- |
-| Community workspace backend | 96 tests passed, including >500 pagination, queue leases/retries, immutable evidence, MFA, roles, providers, uploads and exports |
-| Historical engine regressions | 41 tests passed; 1 upstream optional test skipped; 72 parametrized subtests |
+| Combined Community backend and historical engines | 144 tests passed; 1 upstream optional test skipped; 98 subtests passed. Includes >500 pagination, bounded legacy lists, strictly local parsing, provider identity/decompression bounds, queue leases/retries, immutable evidence, MFA, roles, uploads and exports |
 | Community frontend | 64 unit tests passed; TypeScript, targeted ESLint and production build passed on Node 24 |
 | Python static checks | Ruff and git diff whitespace checks passed |
+| Dependency advisory check | pip-audit found no known vulnerabilities in locked PyPI runtime dependencies. The pinned Git-only MSG converter is not covered by PyPI advisory matching |
 | Docker build | Candidate image built from frozen dependencies; MIT notice included |
 | Docker runtime | Fresh isolated volume; upload 202 → worker completed; SpamAssassin and OLE present; original bytes identical; readiness 200 |
 | Browser walkthrough | Login, cases, campaigns, notes, global search, direct URLs, back/forward, FR/EN persistence, report, human verdict/reopen and disabled offline integrations verified |

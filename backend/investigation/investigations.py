@@ -174,8 +174,15 @@ def _page(conn, sql, params=(), page=1, page_size=50, transform=None):
 
 def _legacy_or_page(conn, sql, params, page, page_size, limit):
     if page is None and page_size is None and limit is None:
-        # Existing API consumers retain the list shape, now without silent truncation.
-        return [dict(row) for row in conn.execute(sql, params)]
+        # Keep small legacy arrays compatible without loading an unbounded result.
+        # The extra row detects overflow; never return a silently truncated list.
+        rows = [dict(row) for row in conn.execute(sql + " LIMIT ?", (*params, 501))]
+        if len(rows) > 500:
+            raise HTTPException(
+                422,
+                "Legacy lists are limited to 500 items; use pagination with page=1&page_size=50",
+            )
+        return rows
     return _page(conn, sql, params, page or 1, page_size or limit or 50)
 
 

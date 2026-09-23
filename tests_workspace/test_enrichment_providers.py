@@ -1,6 +1,9 @@
 import asyncio
+import gzip
 import json
 import unittest
+import zlib
+from unittest.mock import patch
 
 import httpx
 
@@ -20,7 +23,15 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
 
         def record(request):
             self.requests.append(request)
-            return handler(request)
+            response = handler(request)
+            if response.is_stream_consumed:
+                # Real responses reach client.stream before any body is consumed.
+                response = httpx.Response(
+                    response.status_code,
+                    headers=response.headers,
+                    stream=httpx.ByteStream(response.content),
+                )
+            return response
 
         return httpx.MockTransport(record)
 
@@ -36,6 +47,7 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
             str(self.requests[0].url), f"https://www.virustotal.com/api/v3/files/{HASH}"
         )
         self.assertEqual(self.requests[0].headers["x-apikey"], "secret")
+        self.assertEqual(self.requests[0].headers["accept-encoding"], "identity")
 
     async def test_vt_normalizes_optional_counts_and_ignores_raw(self):
         data = {
@@ -199,7 +211,9 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
     async def test_urlscan_existing_search_result_and_safe_links(self):
         def reply(request):
             if request.url.path == "/api/v1/search/":
-                return httpx.Response(200, json={"results": [{"_id": JOB}]})
+                return httpx.Response(
+                    200, json={"results": [{"_id": JOB, "task": {"url": URL}}]}
+                )
             return httpx.Response(
                 200,
                 json={
@@ -233,6 +247,177 @@ class ProviderContracts(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.metadata["redirect_chain_complete"])
         self.assertEqual(len(self.requests), 2)
         self.assertTrue(all(r.url.host == "urlscan.io" for r in self.requests))
+
+    async def test_urlscan_url_lookup_preserves_path_query_case_and_verifies_identity(
+        self,
+    ):
+        original = "HTTPS://SUSPICIOUS.Example/Phish?Token=AbC&X=%2F#Report"
+        canonical = "https://suspicious.example/Phish?Token=AbC&X=%2F#Report"
+
+        def reply(request):
+            record = {"task": {"uuid": JOB, "url": canonical}}
+            if request.url.path == "/api/v1/search/":
+                return httpx.Response(200, json={"results": [record]})
+            return httpx.Response(200, json=record)
+
+        provider = UrlscanProvider("secret", transport=self.transport(reply))
+        result = await provider.lookup(target("url", original))
+        query = self.requests[0].url.params["q"]
+        self.assertIn("Phish", query)
+        self.assertIn("Token", query)
+        self.assertIn("AbC", query)
+        self.assertIn("%2F", query)
+        self.assertNotIn("SUSPICIOUS", query)
+        self.assertEqual(result.target.value, original)
+        self.assertEqual(result.status, "available")
+        self.assertEqual(
+            UrlscanProvider.url_identity("https://EXAMPLE.org/Path?#"),
+            "https://example.org/Path?#",
+        )
+
+    async def test_urlscan_rejects_search_and_report_url_mismatches(self):
+        original = "https://suspicious.example/Phish?Token=AbC"
+        for wrong in (original.lower(), "https://other.example/Phish?Token=AbC", None):
+            for wrong_stage in ("search", "report"):
+                with self.subTest(wrong=wrong, stage=wrong_stage):
+
+                    def reply(request, wrong=wrong, wrong_stage=wrong_stage):
+                        search = request.url.path == "/api/v1/search/"
+                        record = {
+                            "task": {
+                                "uuid": JOB,
+                                "url": wrong
+                                if search == (wrong_stage == "search")
+                                else original,
+                            }
+                        }
+                        return httpx.Response(
+                            200, json={"results": [record]} if search else record
+                        )
+
+                    provider = UrlscanProvider(
+                        "secret", transport=self.transport(reply)
+                    )
+                    with self.assertRaisesRegex(ProviderError, "invalid_response"):
+                        await provider.lookup(target("url", original))
+                    self.assertEqual(
+                        len(self.requests), 1 if wrong_stage == "search" else 2
+                    )
+                    self.assertTrue(
+                        all(request.method == "GET" for request in self.requests)
+                    )
+
+    async def test_transport_gzip_output_is_bounded_before_allocation(self):
+        cap = 1024
+        compressed = gzip.compress(json.dumps({"long": "A" * (1024 * 1024)}).encode())
+        actual_decoder = zlib.decompressobj
+        allocations = []
+
+        class BoundedDecoder:
+            def __init__(self, *args):
+                self.decoder = actual_decoder(*args)
+
+            def decompress(self, data, max_length=0):
+                self.assert_bound(max_length)
+                result = self.decoder.decompress(data, max_length)
+                allocations.append(len(result))
+                return result
+
+            def assert_bound(self, max_length):
+                if not 0 < max_length <= cap + 1:
+                    raise AssertionError("Unbounded decompression")
+
+            def __getattr__(self, name):
+                return getattr(self.decoder, name)
+
+        # Fit the compressed wire bytes under the cap so the output bound is tested.
+        cap = len(compressed) + 100
+        provider = VirusTotalProvider(
+            "secret",
+            max_response_bytes=cap,
+            transport=self.transport(
+                lambda r: httpx.Response(
+                    200,
+                    headers={"Content-Encoding": "gzip"},
+                    stream=httpx.ByteStream(compressed),
+                )
+            ),
+        )
+        with (
+            patch(
+                "backend.investigation.providers.http.zlib.decompressobj",
+                BoundedDecoder,
+            ),
+            patch(
+                "httpx._decoders.GZipDecoder.decode",
+                side_effect=AssertionError("Automatic HTTPX decoding"),
+            ),
+            self.assertRaisesRegex(ProviderError, "response_too_large"),
+        ):
+            await provider.lookup(target("sha256", HASH))
+        self.assertEqual(allocations, [cap + 1])
+
+    async def test_transport_accepts_bounded_gzip_and_rejects_invalid_encodings(self):
+        body = json.dumps({"answer": "value"}).encode()
+        compressed = gzip.compress(body)
+        for payload, encoding, error in (
+            (compressed, "gzip", None),
+            (body, "identity", None),
+            (compressed[:-5], "gzip", "invalid_response"),
+            (compressed + b"unexpected", "gzip", "invalid_response"),
+            (compressed + compressed, "gzip", "invalid_response"),
+            (b"broken gzip", "gzip", "invalid_response"),
+            (compressed, "br", "invalid_response"),
+            (compressed, "gzip, gzip", "invalid_response"),
+        ):
+            with self.subTest(encoding=encoding, error=error):
+                provider = VirusTotalProvider(
+                    "secret",
+                    transport=self.transport(
+                        lambda r, encoding=encoding, payload=payload: httpx.Response(
+                            200,
+                            headers={"Content-Encoding": encoding},
+                            stream=httpx.ByteStream(payload),
+                        )
+                    ),
+                )
+                if error:
+                    with self.assertRaisesRegex(ProviderError, error):
+                        await provider.request("GET", "/test")
+                else:
+                    self.assertEqual(
+                        await provider.request("GET", "/test"),
+                        (200, {"answer": "value"}),
+                    )
+
+    async def test_transport_enforces_the_same_exact_size_boundary_for_gzip_and_identity(
+        self,
+    ):
+        expected = {"answer": "A" * 1000}
+        body = json.dumps(expected).encode()
+        for encoding, wire in (("identity", body), ("gzip", gzip.compress(body))):
+            for cap in (len(body), len(body) - 1):
+                with self.subTest(encoding=encoding, cap=cap):
+                    provider = VirusTotalProvider(
+                        "secret",
+                        max_response_bytes=cap,
+                        transport=self.transport(
+                            lambda r, encoding=encoding, wire=wire: httpx.Response(
+                                200,
+                                headers={"Content-Encoding": encoding},
+                                stream=httpx.ByteStream(wire),
+                            )
+                        ),
+                    )
+                    if cap == len(body):
+                        self.assertEqual(
+                            await provider.request("GET", "/test"), (200, expected)
+                        )
+                    else:
+                        with self.assertRaisesRegex(
+                            ProviderError, "response_too_large"
+                        ):
+                            await provider.request("GET", "/test")
 
     async def test_urlscan_poll_pending_deleted_mismatched(self):
         for status, expected in ((404, "pending"), (410, "unavailable")):

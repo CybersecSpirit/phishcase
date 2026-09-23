@@ -8,11 +8,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend.investigation.api import router
 from backend.investigation.investigations import (
+    _legacy_or_page,
     index_analysis,
     initialize_investigations,
 )
@@ -145,10 +146,41 @@ class InvestigationTests(unittest.TestCase):
         self.assertEqual(len(found), 622)
         self.assertEqual(len(set(found)), 622)
         self.assertIn(old, found)
-        self.assertEqual(
-            len(self.get("/analyses")), 622
-        )  # Legacy API is exhaustive too.
+        legacy = self.client.get(PREFIX + "/analyses")
+        self.assertEqual(legacy.status_code, 422)
+        self.assertIn("use pagination", legacy.json()["detail"])
         self.assertEqual(self.get("/analyses", page=99)["items"], [])
+
+    def test_legacy_boundary_loads_at_most_501_rows_and_accepts_filtered_results(self):
+        case_id = self.case()
+        self.seed_many(case_id, 500)
+        legacy = self.get("/analyses")
+        self.assertEqual(len(legacy), 500)
+        self.analysis(case_id, "overflow")
+        legacy = self.client.get(PREFIX + "/analyses")
+        self.assertEqual(legacy.status_code, 422)
+        self.assertIn("page=1", legacy.json()["detail"])
+        self.assertEqual(len(self.get("/analyses", q="overflow")), 1)
+        self.assertEqual(self.get("/analyses", page=1)["total"], 501)
+        self.analysis(case_id, "another-row")
+        visited = []
+        with db() as conn:
+            # A real SQLite function counts row materialization. An unbounded
+            # execute/fetch followed by slicing would visit all 502 rows.
+            conn.create_function(
+                "visited_row", 1, lambda value: visited.append(value) or value
+            )
+            with self.assertRaises(HTTPException) as error:
+                _legacy_or_page(
+                    conn,
+                    "SELECT visited_row(id) AS id FROM analyses",
+                    (),
+                    None,
+                    None,
+                    None,
+                )
+            self.assertEqual(error.exception.status_code, 422)
+        self.assertEqual(len(visited), 501)
 
     def test_analysis_filters_counts_page_size_and_limit_alias(self):
         case_id = self.case()
@@ -203,6 +235,10 @@ class InvestigationTests(unittest.TestCase):
                 "INSERT INTO events(actor_id,case_id,action,detail) VALUES (1,?,'review.test',?)",
                 [(case_id, f"Audit {i}") for i in range(620)],
             )
+        for path in ("/cases", "/iocs", "/iocs/1/occurrences"):
+            response = self.client.get(PREFIX + path)
+            self.assertEqual(response.status_code, 422, response.text)
+            self.assertIn("use pagination", response.json()["detail"])
         self.assertEqual(self.get("/cases", page=6, page_size=100)["total"], 521)
         self.assertEqual(len(self.get("/cases", page=6, page_size=100)["items"]), 21)
         self.assertEqual(

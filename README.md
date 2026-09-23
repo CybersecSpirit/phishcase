@@ -61,7 +61,7 @@ Les pièces jointes restent rattachées à l’analyse de leur email, **dans le 
 
 - L’original EML/MSG et son SHA-256 sont conservés.
 - Les octets des PJ et de l’original sont conservés dans EvidenceStorage, séparément du JSON, avec contrôle SHA-256 à la lecture et des clés de stockage opaques.
-- Le moteur effectue des contrôles statiques Office/OLE, notamment sur les macros et certaines structures suspectes. Une consultation de réputation par empreinte est possible si VirusTotal est configuré.
+- Le moteur effectue des contrôles statiques Office/OLE, notamment sur les macros et certaines structures suspectes. Une consultation de réputation par empreinte est possible par action explicite si VirusTotal est configuré et autorisé.
 - Le fichier original et chaque PJ sont téléchargeables individuellement ; le rapport est exportable en JSON, en HTML lisible et en paquet de preuves. Les PJ du paquet sont sélectionnées explicitement.
 - Le HTML de l’email est affiché comme texte inerte. Les ressources et liens du message ne sont pas chargés automatiquement par l’interface.
 
@@ -196,7 +196,7 @@ Les services de réputation peuvent recevoir les indicateurs consultés si leurs
 - **Frontend** : Vue 3, TypeScript et Vite, construit avec Node.js 24.
 - **Backend** : FastAPI, Python 3.14 et moteur `eml_analyzer`.
 - **Stockage** : SQLite avec clés étrangères et mode WAL ; Redis n’est pas nécessaire au stockage des dossiers.
-- **Analyse** : parsing EML/MSG, extraction des IOC, SpamAssassin, contrôles Office/OLE, DKIM et enrichissements configurés.
+- **Analyse initiale locale** : parsing EML/MSG, extraction des IOC, SpamAssassin local et contrôles Office/OLE. Les vérifications DKIM nécessitant le DNS et EmailRep ne sont pas exécutées. Les enrichissements VirusTotal/urlscan sont des actions explicites séparées.
 - **Déploiement fourni** : un conteneur avec API, worker et SpamAssassin local, plus un volume persistant contenant SQLite et les preuves.
 
 | Chemin | Contenu |
@@ -230,7 +230,7 @@ PhishCase est une première version d’investigation mono-équipe. Cette branch
 - Déploiement prévu pour un seul processus API ; pas de répartition sur plusieurs workers.
 - Pas d’isolation multi-organisation ou par dossier, de SSO, de passkeys/WebAuthn, de chiffrement applicatif des preuves ou de politique de rétention automatique.
 - Pas de sandbox, d’export STIX ou de verdict garantissant qu’un fichier est sûr.
-- Pagination complète des dossiers, analyses, IOC, événements, campagnes et résultats de recherche. Les anciennes requêtes sans paramètre page restent compatibles mais une pagination est recommandée aux clients API.
+- Pagination complète des dossiers, analyses, IOC, événements, campagnes et résultats de recherche. Les anciennes requêtes sans pagination conservent leur format tableau jusqu’à 500 résultats ; au-delà, une erreur 422 demande une pagination explicite, sans tronquer les résultats.
 
 Le code et les dépendances doivent être évalués pour les exigences de votre environnement avant une exposition en production. Les vérifications réalisées sont décrites dans [docs/VALIDATION.md](docs/VALIDATION.md).
 
