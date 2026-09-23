@@ -12,6 +12,12 @@
 - French/English interface, locale preferences, hashed/revocable API tokens,
   readiness, encrypted backups and verified restoration to an empty target.
 - Public extension hooks for a separate private PostgreSQL Cloud adapter.
+- Preserved sender display identity, chronological routing, inert HTML text,
+  contextual URL/attachment indicators and persisted enrichment exports.
+- Explicit opt-in DKIM verification with bounded isolated cryptography,
+  independent DNS permission, immutable-source checks and no automatic lookup.
+- Pending-verdict/IOC/campaign dashboard, enrichment pagination, attachment
+  opt-in packages and reloadable campaign filters.
 
 This entry describes candidate code, not a published stable release. Live providers,
 public Cloud checkout/email and VPS operation require independent operational validation.

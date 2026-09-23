@@ -9,7 +9,7 @@ Community fonctionne et se construit seule. Elle ne dépend jamais du dépôt pr
 
 ## Répartition du travail
 
-| Community (public) | Enterprise (privé, à développer) |
+| Community (public) | Enterprise (privé) |
 | --- | --- |
 | Analyse EML/MSG, moteur et preuves | Provisionnement et exploitation SaaS |
 | Dossiers mono-équipe, IOC, comptes, rôles de base et MFA | Isolation multi-organisation et gouvernance avancée |
@@ -17,7 +17,7 @@ Community fonctionne et se construit seule. Elle ne dépend jamais du dépôt pr
 | Enrichissements avec clés utilisateur et garde-fous de confidentialité | SSO entreprise, connecteurs premium, console opérateur et fonctions MSSP |
 | Corrections du cœur, API et points d'extension génériques | Intégrations commerciales et configuration d'exploitation privée |
 
-Ce tableau définit la destination des développements, pas une liste de fonctionnalités Enterprise déjà disponibles. Les fonctions actuelles de Community restent publiques. Les enrichissements V2 de la PR draft #1 ne sont pas considérés comme intégrés.
+Ce tableau définit la séparation des responsabilités. Le socle Cloud dispose désormais de comptes vérifiés, organisations, PostgreSQL, quotas/offres, facturation Stripe simulée, politiques par organisation, rétention, webhooks et sauvegardes chiffrées. SSO, connecteurs premium et MSSP restent futurs. Le cœur et ses enrichissements restent publics ; le contrat de la PR draft #1 a été examiné et adapté sans fusionner cette PR.
 
 ## Dépendance et mises à jour
 
@@ -45,6 +45,10 @@ Si le remote existe déjà, vérifier son URL au lieu de le recréer. Examiner e
 
 ## État de la séparation
 
-Le cœur applicatif reste inchangé. La PR [#1](https://github.com/CybersecSpirit/phishcase/pull/1) reste ouverte en draft et nécessite une validation avant fusion. Le dépôt privé commence par la documentation d'architecture et le sous-module ; aucune isolation SaaS ni facturation n'est encore implémentée.
+La release candidate enrichit le cœur public et le compose dans le dépôt privé. La PR [#1](https://github.com/CybersecSpirit/phishcase/pull/1) reste ouverte en draft et nécessite une validation avant fusion. Cloud utilise des schémas PostgreSQL et chemins de preuves sélectionnés côté serveur par organisation ; cette isolation applicative repose sur un rôle DB partagé, sans promesse de séparation OS/RLS. La logique Stripe est testée avec des doubles, sans attestation de paiement réel.
 
-Restent à décider : licence commerciale et offres, interfaces d'extension, architecture d'isolation, stratégie de stockage et de workers, publication des images, domaine de la landing page et conditions de déploiement VPS.
+Les domaines publics sont [le site](https://phishcase.cybertactic.fr), [la documentation](https://docs.phishcase.cybertactic.fr) et [l’application](https://app.phishcase.cybertactic.fr). Le déploiement candidate Docker/Plesk est vérifié ; les inscriptions restent fermées. Restent à finaliser : SMTP réel, compte Stripe test, contact/support, documents commerciaux, calendrier et destination indépendante des sauvegardes, publication des images et validation des PR avant release stable.
+
+## English
+
+Community is the independent public MIT engine. The private Enterprise repository pins it as a Git submodule and builds Cloud identity, application-enforced organization isolation, plans/quotas, billing, retention, webhooks and operations around it. Generic fixes remain public. Stripe transport is currently simulated; SSO, premium connectors and MSSP are future work. The original draft PR #1 remains unmerged. Upstream eml_analyzer history and MIT attribution are retained in both distributions. Public signup stays closed until operational and commercial launch requirements are validated.

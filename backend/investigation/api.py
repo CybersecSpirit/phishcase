@@ -19,6 +19,7 @@ from .auth import (
     secure_cookie,
     throttle,
 )
+from .dkim_api import router as dkim_router
 from .enrichment_api import router as enrichment_router
 from .exports import router as exports_router
 from .investigations import router as investigations_router
@@ -33,6 +34,7 @@ router.include_router(mfa_router)
 router.include_router(tokens_router)
 router.include_router(exports_router)
 router.include_router(enrichment_router)
+router.include_router(dkim_router)
 router.include_router(investigations_router)
 
 
@@ -202,6 +204,28 @@ def dashboard(user: User):
             "failed_analyses": conn.execute(
                 "SELECT count(*) FROM analyses WHERE status='failed'"
             ).fetchone()[0],
+            "pending_verdicts": conn.execute(
+                """SELECT count(*) FROM analyses a WHERE a.status='completed' AND
+                COALESCE((SELECT action FROM analyst_decisions d WHERE d.analysis_id=a.id ORDER BY d.id DESC LIMIT 1),'reopened')='reopened'"""
+            ).fetchone()[0],
+            "active_campaigns": conn.execute(
+                "SELECT count(*) FROM campaigns WHERE status='active' AND deleted_at IS NULL"
+            ).fetchone()[0],
+            "frequent_iocs": [
+                dict(row)
+                for row in conn.execute(
+                    """SELECT i.id,i.kind,i.value,count(DISTINCT a.id) AS analysis_count,
+                count(DISTINCT a.case_id) AS case_count FROM iocs i
+                JOIN analysis_iocs ai ON ai.ioc_id=i.id JOIN analyses a ON a.id=ai.analysis_id
+                GROUP BY i.id ORDER BY analysis_count DESC,i.id DESC LIMIT 10"""
+                )
+            ],
+            "recent_analyses": [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT id,case_id,filename,subject,status,created_at FROM analyses ORDER BY created_at DESC,id DESC LIMIT 10"
+                )
+            ],
             "priorities": [
                 dict(r)
                 for r in conn.execute(
@@ -301,12 +325,20 @@ def get_analysis(analysis_id: str, user: User):
         result = dict(row)
         result.pop("source", None)
         result.pop("source_ref", None)
+        from .failures import error_code
+
+        result["error_code"] = error_code(result.get("error"))
         result["result"] = json.loads(result["result"]) if result["result"] else None
         if result["result"] is not None:
             for item in result["result"].get("eml", {}).get("attachments", []):
                 item.pop("raw", None)
             result["assessment"] = result["result"].get("assessment") or summarize(
                 result["result"]
+            )
+            from .report_context import investigation_context
+
+            result["result"]["investigation"] = investigation_context(
+                conn, analysis_id, result["result"]
             )
         else:
             result["assessment"] = None

@@ -21,6 +21,9 @@ def report_document(analysis_id, user):
 
     document = get_analysis(analysis_id, user)
     with db() as conn:
+        from .report_context import enrichments
+
+        document["enrichments"] = enrichments(conn, analysis_id)
         document["analyst_decisions"] = [
             dict(row)
             for row in conn.execute(
@@ -104,6 +107,7 @@ def rendered_report(document, locale="en"):  # noqa: C901 - linear report sectio
     report = document.get("result") or {}
     email = report.get("eml") or {}
     header = email.get("header") or {}
+    investigation = report.get("investigation") or {}
     parts = [
         "<!doctype html><html lang='"
         + locale
@@ -184,6 +188,72 @@ def rendered_report(document, locale="en"):  # noqa: C901 - linear report sectio
             + escape(verdict.get("name"))
             + "</h3>"
             + table([(k, verdict.get(k)) for k in ("malicious", "score", "details")])
+        )
+    parts.append(
+        section(
+            tr("Sender identity", "Identité de l'expéditeur"),
+            list((investigation.get("identity") or {}).items()),
+        )
+    )
+    parts.append(
+        "<h2>"
+        + tr(
+            "Declared authentication — unverified",
+            "Authentification déclarée — non vérifiée",
+        )
+        + "</h2>"
+    )
+    for declaration in (investigation.get("authentication") or {}).get("declared", []):
+        parts.append(table(list(declaration.items())))
+    parts.append(
+        "<h2>"
+        + tr("Routing — oldest first", "Routage — du plus ancien au plus récent")
+        + "</h2>"
+    )
+    for hop in (investigation.get("routing") or {}).get("hops", []):
+        parts.append(
+            table(
+                [(key, hop.get(key)) for key in ("from_", "by", "date", "delay", "src")]
+            )
+        )
+    parts.append("<h2>" + tr("Message text", "Texte du message") + "</h2>")
+    for body in investigation.get("bodies", []):
+        parts.append(
+            "<h3>"
+            + escape(body.get("content_type"))
+            + "</h3><pre>"
+            + escape(body.get("text"))
+            + "</pre>"
+        )
+    parts.append(
+        "<h2>"
+        + tr(
+            "Enrichments and explicit checks",
+            "Enrichissements et vérifications explicites",
+        )
+        + "</h2>"
+    )
+    for observation in document.get("enrichments", []):
+        parts.append(
+            table(
+                [
+                    (key, observation.get(key))
+                    for key in (
+                        "provider",
+                        "action",
+                        "target",
+                        "status",
+                        "created_at",
+                        "summary",
+                        "malicious",
+                        "suspicious",
+                        "harmless",
+                        "unknown",
+                        "metadata",
+                        "external_url",
+                    )
+                ]
+            )
         )
     parts.append(
         "<h2>" + tr("Indicators (defanged)", "Indicateurs (neutralisés)") + "</h2>"

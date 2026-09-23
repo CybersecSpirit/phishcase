@@ -21,7 +21,9 @@ const oldAnalysis = {
   sha256: 'abc',
   created_at: '2024-01-01T00:00:00Z'
 }
-function stubApi() {
+function stubApi(
+  analysis: typeof oldAnalysis & { result?: Record<string, unknown> } = oldAnalysis
+) {
   const fetch = vi.fn(async (input: string) => {
     const url = new URL(input, 'http://localhost')
     if (url.pathname.endsWith('/auth/me'))
@@ -34,9 +36,16 @@ function stubApi() {
         analyses: 601,
         iocs: 1,
         failed_analyses: 0,
-        activity: []
+        activity: [],
+        pending_verdicts: 12,
+        active_campaigns: 4,
+        recent_analyses: [oldAnalysis],
+        frequent_iocs: [
+          { id: 7, kind: 'url', value: 'https://evil.example', analysis_count: 8, case_count: 3 }
+        ]
       })
     if (url.pathname.endsWith('/users')) return reply([])
+    if (url.pathname.endsWith('/integrations')) return reply({ mode: 'offline', providers: [] })
     if (url.pathname.endsWith('/cases/42/events')) return reply(page([]))
     if (url.pathname.endsWith('/cases/42'))
       return reply({
@@ -55,7 +64,7 @@ function stubApi() {
           1
         )
       )
-    if (url.pathname.endsWith('/analyses/old-analysis')) return reply(oldAnalysis)
+    if (url.pathname.endsWith('/analyses/old-analysis')) return reply(analysis)
     if (url.pathname.endsWith('/analyses'))
       return reply(
         page(
@@ -95,6 +104,58 @@ const options = {
   global: { stubs: { AnalysisIntake: true, AnalystDecision: true, InvestigationContext: true } }
 }
 describe('shareable workspace navigation and pagination', () => {
+  it('shows actionable dashboard work and keeps frequent indicators inert', async () => {
+    stubApi()
+    await router.replace('/dashboard')
+    const wrapper = mount(WorkspaceView, options)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Verdicts en attente')
+    expect(wrapper.text()).toContain('Campagnes actives')
+    expect(wrapper.text()).toContain(oldAnalysis.subject)
+    expect(wrapper.find('a[href="/analyses/old-analysis"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="/iocs/7"]').exists()).toBe(true)
+    expect(wrapper.find('a[href="https://evil.example"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+  it('uses the text projection and exports only explicitly selected attachments', async () => {
+    stubApi({
+      ...oldAnalysis,
+      result: {
+        eml: {
+          header: { from_: 'sender@example.test', to: [], date: '' },
+          bodies: [
+            {
+              content_type: 'text/html',
+              content: '<img src="https://evil.example/a"><b>Readable text</b>'
+            }
+          ],
+          attachments: [0, 1].map((index) => ({
+            filename: `attachment-${index}.txt`,
+            size: 1,
+            mime_type: 'text/plain',
+            hash: { sha256: 'abc' }
+          }))
+        },
+        verdicts: [],
+        investigation: { bodies: [{ index: 0, content_type: 'text/html', text: 'Readable text' }] }
+      }
+    })
+    await router.replace('/analyses/old-analysis')
+    const wrapper = mount(WorkspaceView, options)
+    await flushPromises()
+    const archive = () => wrapper.get('a[href*="/evidence.zip"]')
+    expect(archive().attributes('href')).toBe(
+      '/api/workspace/analyses/old-analysis/evidence.zip?attachments='
+    )
+    await wrapper.findAll('.email-report input[type=checkbox]')[1]!.setValue(true)
+    expect(archive().attributes('href')).toBe(
+      '/api/workspace/analyses/old-analysis/evidence.zip?attachments=1'
+    )
+    expect(wrapper.find('.email-report').text()).toContain('Readable text')
+    expect(wrapper.find('.email-report').text()).not.toContain('<img')
+    expect(wrapper.find('.email-report img').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('hydrates an old case from its URL and requests its analyses independently of the global list', async () => {
     const fetch = stubApi()
     await router.replace('/cases/42')

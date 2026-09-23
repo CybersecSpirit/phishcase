@@ -105,6 +105,7 @@ watch(
   () => {
     const route = router.currentRoute.value
     if (!route.path.startsWith('/campaigns')) return
+    query.value = typeof route.query.q === 'string' ? route.query.q : ''
     selected.value = null
     void run(() =>
       route.params.id ? details(Number(route.params.id)) : load(Number(route.query.page || 1))

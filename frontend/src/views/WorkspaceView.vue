@@ -45,6 +45,7 @@ type Entry = {
   case_id?: number
 }
 type EmailReport = {
+  investigation?: { bodies?: { index: number; content_type: string; text: string }[] }
   eml: {
     header: { subject: string; from_: string; to: string[]; date: string }
     bodies: { content: string; content_type: string }[]
@@ -85,12 +86,17 @@ type Dashboard = {
   iocs: number
   failed_analyses: number
   activity: Entry[]
+  pending_verdicts?: number
+  active_campaigns?: number
+  frequent_iocs?: IOC[]
+  recent_analyses?: Analysis[]
 }
 type ExtensionLink = { label: string; url: string }
 const extensions = ref<{
   navigation: ExtensionLink[]
   auth_links: ExtensionLink[]
   manage_users_url?: string
+  manage_integrations_url?: string
 }>({ navigation: [], auth_links: [] })
 function validExtension(link: ExtensionLink) {
   return (
@@ -106,11 +112,17 @@ async function loadExtensions() {
       navigation?: ExtensionLink[]
       auth_links?: ExtensionLink[]
       manage_users_url?: string
+      manage_integrations_url?: string
     }>('/config')
     extensions.value = {
       navigation: (config.navigation || []).filter(validExtension),
       auth_links: (config.auth_links || []).filter(validExtension),
-      manage_users_url: config.manage_users_url
+      manage_users_url: config.manage_users_url,
+      manage_integrations_url:
+        config.manage_integrations_url &&
+        validExtension({ label: '', url: config.manage_integrations_url })
+          ? config.manage_integrations_url
+          : undefined
     }
   } catch {
     /* core supports no extensions */
@@ -543,6 +555,30 @@ async function saveUser(u: User) {
   })
 }
 const emailReport = computed(() => report.value?.result as unknown as EmailReport | undefined)
+const selectedEvidenceAttachments = ref<number[]>([])
+watch(
+  () => report.value?.id,
+  () => {
+    selectedEvidenceAttachments.value = []
+  }
+)
+const evidenceDownload = computed(
+  () =>
+    '/api/workspace/analyses/' +
+    report.value?.id +
+    '/evidence.zip?attachments=' +
+    selectedEvidenceAttachments.value.join(',')
+)
+const readableBodies = computed(
+  () =>
+    emailReport.value?.investigation?.bodies ||
+    emailReport.value?.eml.bodies.map((body, index) => ({
+      index,
+      content_type: body.content_type,
+      text: body.content
+    })) ||
+    []
+)
 const caseAnalyses = computed(() => scopedAnalyses.value.items)
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
@@ -753,6 +789,7 @@ onUnmounted(() => {
             v-if="tab === 'integrations'"
             :request="api"
             :admin="user.role === 'admin'"
+            :settings-url="extensions.manage_integrations_url"
           />
           <GlobalSearch v-if="tab === 'search'" :request="api" />
           <CampaignWorkspace v-if="tab === 'campaigns'" :request="api" :can-write="!!writer" />
@@ -782,12 +819,9 @@ onUnmounted(() => {
                   download
                   >{{ t('Rapport HTML') }}</a
                 >
-                <a
-                  class="secondary"
-                  :href="'/api/workspace/analyses/' + report.id + '/evidence.zip'"
-                  download
-                  >{{ t('Preuve originale et manifeste') }}</a
-                >
+                <a class="secondary" :href="evidenceDownload" download>{{
+                  t('Télécharger le paquet de preuves')
+                }}</a>
                 <button class="secondary" @click="navigate('analyses')">{{ t('Fermer') }}</button>
               </div>
             </div>
@@ -879,21 +913,33 @@ onUnmounted(() => {
               </article>
               <h2>{{ t('Contenu de l’email') }}</h2>
               <details
-                v-for="(body, index) in emailReport.eml.bodies"
-                :key="index"
+                v-for="body in readableBodies"
+                :key="body.index"
                 :open="body.content_type === 'text/plain'"
               >
                 <summary>
-                  {{ body.content_type || t('Texte') }} {{ t('· partie') }} {{ index + 1 }}
+                  {{ body.content_type || t('Texte') }} {{ t('· partie') }} {{ body.index + 1 }}
                 </summary>
-                <pre>{{ body.content }}</pre>
+                <pre>{{ body.text }}</pre>
               </details>
               <h2>{{ t('Pièces jointes ·') }} {{ emailReport.eml.attachments.length }}</h2>
+              <p class="small muted">
+                {{
+                  t(
+                    'Le paquet contient l’original et son manifeste. Cochez les pièces jointes à y ajouter ; aucune n’est incluse par défaut.'
+                  )
+                }}
+              </p>
               <p class="small muted">
                 {{ t('Conservées avec cet email dans le dossier #') }} {{ report.case_id }}
                 {{ t('. Analyse statique Office ; pas d’exécution en sandbox.') }}
               </p>
               <article v-for="(a, index) in emailReport.eml.attachments" :key="index" class="note">
+                <label class="security-check"
+                  ><input v-model="selectedEvidenceAttachments" type="checkbox" :value="index" />{{
+                    t('Inclure dans le paquet')
+                  }}</label
+                >
                 <strong>{{ a.filename }}</strong>
                 <a
                   class="text-link attachment-download"
@@ -918,7 +964,17 @@ onUnmounted(() => {
                   [t('Dossiers ouverts'), dashboard.open_cases, t('À investiguer')],
                   [t('Analyses'), dashboard.analyses, t('Emails traités ou en cours')],
                   [t('Indicateurs'), dashboard.iocs, t('IOC uniques extraits')],
-                  [t('Échecs'), dashboard.failed_analyses, t('Analyses à vérifier')]
+                  [t('Échecs'), dashboard.failed_analyses, t('Analyses à vérifier')],
+                  [
+                    t('Verdicts en attente'),
+                    dashboard.pending_verdicts ?? 0,
+                    t('Décisions humaines attendues')
+                  ],
+                  [
+                    t('Campagnes actives'),
+                    dashboard.active_campaigns ?? 0,
+                    t('Investigations regroupées')
+                  ]
                 ]"
                 :key="String(label)"
                 class="stat"
@@ -929,6 +985,49 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="dashboard-grid">
+              <section class="panel">
+                <div class="panel-title">
+                  <h2>{{ t('Analyses récentes') }}</h2>
+                  <button @click="navigate('analyses')">{{ t('Voir les analyses') }} →</button>
+                </div>
+                <p v-if="!dashboard.recent_analyses?.length" class="empty">
+                  {{ t('Aucun résultat trouvé.') }}
+                </p>
+                <a
+                  v-for="analysis in dashboard.recent_analyses || []"
+                  :key="analysis.id"
+                  class="case-row"
+                  :href="'/analyses/' + analysis.id"
+                  @click="followLink($event, '/analyses/' + analysis.id)"
+                >
+                  <span>{{ analysis.subject || analysis.filename }}</span
+                  ><span class="badge" :data-state="analysis.status">{{
+                    labels[analysis.status]
+                  }}</span>
+                </a>
+              </section>
+              <section class="panel">
+                <div class="panel-title">
+                  <h2>{{ t('IOC fréquents') }}</h2>
+                  <button @click="navigate('campaigns')">{{ t('Campagnes actives') }} →</button>
+                </div>
+                <p v-if="!dashboard.frequent_iocs?.length" class="empty">
+                  {{ t('Aucun résultat trouvé.') }}
+                </p>
+                <a
+                  v-for="ioc in dashboard.frequent_iocs || []"
+                  :key="ioc.id"
+                  class="case-row"
+                  :href="'/iocs/' + ioc.id"
+                  @click="followLink($event, '/iocs/' + ioc.id)"
+                >
+                  <code class="ioc-value">{{ defang(ioc.value) }}</code
+                  ><small
+                    >{{ ioc.analysis_count }} {{ t('Analyses') }} · {{ ioc.case_count }}
+                    {{ t('Dossiers') }}</small
+                  >
+                </a>
+              </section>
               <section class="panel">
                 <div class="panel-title">
                   <h2>{{ t('Dossiers récents') }}</h2>
@@ -962,7 +1061,7 @@ onUnmounted(() => {
               <section class="panel">
                 <div class="panel-title">
                   <h2>{{ t('Journal d’activité') }}</h2>
-                  <span class="muted small"> {{ t('30 derniers événements') }} </span>
+                  <span class="muted small"> {{ t('9 derniers événements') }} </span>
                 </div>
                 <p v-if="!dashboard.activity.length" class="empty">
                   {{ t('Aucune activité enregistrée.') }}

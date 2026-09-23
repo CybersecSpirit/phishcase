@@ -13,10 +13,52 @@ type Header = {
   received?: { from_?: string[]; by?: string[]; date?: string; delay?: number; src?: string }[]
 }
 type Result = {
+  investigation?: {
+    identity?: {
+      raw_from: string
+      display_name: string
+      address: string
+      domain: string
+      reply_to: { address: string; domain: string }[]
+      return_path: { address: string }[]
+      anomalies: { code: string; message: string }[]
+    }
+    routing?: { order: string; hops: NonNullable<Header['received']> }
+    urls?: ({
+      value: string
+      domain: string
+      display_texts: string[]
+      destination_mismatch: boolean
+    } & SignalContext)[]
+    attachments?: ({
+      index: number
+      filename: string
+      sha256: string
+      static_findings: { key: string; description: string }[]
+    } & SignalContext)[]
+    authentication?: {
+      declared: {
+        source: string
+        raw: string
+        authserv_id: string
+        mechanism: string
+        result: string
+        detail: string
+        confidence: string
+      }[]
+    }
+  }
   eml?: {
     header?: Header
     bodies?: { urls?: string[]; domains?: string[]; ip_addresses?: string[] }[]
   }
+}
+type SignalContext = {
+  ioc_id: number | null
+  analysis_count: number
+  case_count: number
+  campaigns: { id: number; name: string }[]
+  enrichments: { id: string; provider: string; status: string; summary: string }[]
 }
 type Similar = {
   id: string
@@ -31,14 +73,24 @@ const props = defineProps<{
   request: Request
 }>()
 const parsed = computed(() => props.result as Result),
-  header = computed(() => parsed.value.eml?.header || {})
+  header = computed(() => parsed.value.eml?.header || {}),
+  investigation = computed(() => parsed.value.investigation),
+  identity = computed(() => investigation.value?.identity)
 const field = (name: string) =>
   Object.entries(header.value.header || {})
     .find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1]
     .join(', ') || '—'
-const sender = computed(() => header.value.from_ || field('From'))
-const address = computed(() => sender.value.match(/<([^>]+)>/)?.[1] || sender.value)
-const senderDomain = computed(() => address.value.split('@')[1]?.toLowerCase() || '')
+const sender = computed(() => identity.value?.raw_from || header.value.from_ || field('From'))
+const address = computed(
+  () =>
+    identity.value?.address ||
+    sender.value.match(/<([^>]+)>/)?.[1] ||
+    header.value.from_ ||
+    sender.value
+)
+const senderDomain = computed(
+  () => identity.value?.domain || address.value.split('@')[1]?.toLowerCase() || ''
+)
 const replyDomain = computed(
   () =>
     field('Reply-To')
@@ -48,6 +100,38 @@ const replyDomain = computed(
 const urls = computed(() => [
   ...new Set(parsed.value.eml?.bodies?.flatMap((body) => body.urls || []) || [])
 ])
+const routing = computed(
+  () => investigation.value?.routing?.hops || [...(header.value.received || [])].reverse()
+)
+const urlContexts = computed(
+  () =>
+    investigation.value?.urls ||
+    urls.value.map((value) => ({
+      value,
+      domain: '',
+      display_texts: [],
+      destination_mismatch: false,
+      ioc_id: null,
+      analysis_count: 0,
+      case_count: 0,
+      campaigns: [],
+      enrichments: []
+    }))
+)
+function anomalyLabel(code: string) {
+  return t(
+    (
+      {
+        reply_to_domain_differs:
+          'Le domaine Reply-To diffère du domaine expéditeur. Vérifiez le contexte avant de conclure.',
+        return_path_domain_differs:
+          'Le domaine Return-Path diffère du domaine expéditeur. Un service de routage légitime peut expliquer cet écart.',
+        display_name_domain_differs:
+          'Le nom affiché mentionne un autre domaine que l’adresse expéditeur. Vérifiez l’identité revendiquée.'
+      } as Record<string, string>
+    )[code] || 'Une incohérence d’identité est déclarée ; vérifiez les en-têtes et le contexte.'
+  )
+}
 const authHeaders = computed(() =>
   Object.entries(header.value.header || {}).filter(([key]) =>
     [
@@ -95,6 +179,8 @@ watch(
     <dl>
       <dt>{{ t('From affiché') }}</dt>
       <dd>{{ sender }}</dd>
+      <dt>{{ t('Nom affiché') }}</dt>
+      <dd>{{ identity?.display_name || '—' }}</dd>
       <dt>{{ t('Adresse expéditeur') }}</dt>
       <dd>{{ defang(address) }}</dd>
       <dt>Reply-To</dt>
@@ -106,7 +192,13 @@ watch(
       <dt>{{ t('Domaine expéditeur') }}</dt>
       <dd>{{ defang(senderDomain) || '—' }}</dd>
     </dl>
-    <p v-if="senderDomain && replyDomain && senderDomain !== replyDomain" class="error">
+    <p v-for="anomaly in identity?.anomalies || []" :key="anomaly.code" class="error">
+      {{ anomalyLabel(anomaly.code) }}
+    </p>
+    <p
+      v-if="!identity && senderDomain && replyDomain && senderDomain !== replyDomain"
+      class="error"
+    >
       {{
         t(
           'Le domaine Reply-To diffère du domaine expéditeur. Vérifiez le contexte avant de conclure.'
@@ -125,26 +217,36 @@ watch(
       <strong>{{ name }}</strong>
       <pre>{{ values.join('\n') }}</pre>
     </article>
+    <dl
+      v-for="(claim, index) in investigation?.authentication?.declared || []"
+      :key="index"
+      class="note"
+    >
+      <dt>{{ t('Déclaration non vérifiée') }}</dt>
+      <dd>{{ claim.mechanism }} · {{ claim.result }}</dd>
+      <dt>{{ t('Relais déclarant') }}</dt>
+      <dd>{{ claim.authserv_id || '—' }}</dd>
+      <dt>{{ t('Source') }}</dt>
+      <dd>{{ claim.source }} · {{ claim.detail }}</dd>
+    </dl>
     <p v-if="!authHeaders.length">{{ t('Aucun en-tête d’authentification disponible.') }}</p>
     <h2>{{ t('Parcours du message') }}</h2>
     <p class="small muted">
       {{
         t(
-          'Ordre chronologique inversé des en-têtes Received. Les relais déclarés ne constituent pas une preuve de confiance.'
+          'Du premier au dernier relais déclaré. Les dates et relais reçus ne constituent pas une preuve de confiance.'
         )
       }}
     </p>
-    <article
-      v-for="(hop, index) in [...(header.received || [])].reverse()"
-      :key="index"
-      class="timeline"
-    >
+    <article v-for="(hop, index) in routing" :key="index" class="timeline">
       <i></i>
       <div>
         <strong>{{ hop.from_?.join(', ') || '—' }} → {{ hop.by?.join(', ') || '—' }}</strong
         ><small
           >{{ hop.date
-          }}<template v-if="hop.delay !== undefined"> · {{ hop.delay }} s</template></small
+          }}<template v-if="hop.delay !== undefined && hop.delay !== null">
+            · {{ hop.delay }} s</template
+          ></small
         >
         <details>
           <summary>{{ t('Source') }}</summary>
@@ -152,18 +254,78 @@ watch(
         </details>
       </div>
     </article>
-    <h2>{{ t('URLs extraites') }} ({{ urls.length }})</h2>
+    <h2>{{ t('URLs extraites') }} ({{ urlContexts.length }})</h2>
     <p class="small muted">
       {{
         t('Les destinations sont neutralisées. Aucune ressource distante du message n’est chargée.')
       }}
     </p>
-    <article v-for="url in urls" :key="url" class="note">
-      <code class="ioc-value">{{ defang(url) }}</code>
-      <button class="text-link" @click="copy(url)">
-        {{ copied === url ? t('Copié') : t('Copier la valeur neutralisée') }}
+    <article v-for="url in urlContexts" :key="url.value" class="note signal-context">
+      <code class="ioc-value">{{ defang(url.value) }}</code>
+      <button class="text-link" @click="copy(url.value)">
+        {{ copied === url.value ? t('Copié') : t('Copier la valeur neutralisée') }}
       </button>
+      <p v-if="url.domain">{{ t('Domaine') }} · {{ defang(url.domain) }}</p>
+      <p v-for="(label, index) in url.display_texts" :key="index">
+        {{ t('Texte du lien') }} · {{ defang(label) }}
+      </p>
+      <p v-if="url.destination_mismatch" class="error">
+        {{
+          t('Le texte du lien et sa destination diffèrent. Vérifiez le contexte avant de conclure.')
+        }}
+      </p>
+      <p v-if="url.ioc_id">
+        <a
+          :href="'/iocs/' + url.ioc_id"
+          @click.exact.prevent="router.push('/iocs/' + url.ioc_id)"
+          >{{ t('Voir l’indicateur') }}</a
+        >
+        · {{ url.analysis_count }} {{ t('Analyses') }} · {{ url.case_count }} {{ t('Dossiers') }}
+      </p>
+      <p v-for="campaign in url.campaigns" :key="campaign.id">
+        <a
+          :href="'/campaigns/' + campaign.id"
+          @click.exact.prevent="router.push('/campaigns/' + campaign.id)"
+          >{{ t('Campagne') }} · {{ campaign.name }}</a
+        >
+      </p>
+      <p v-for="enrichment in url.enrichments" :key="enrichment.id">
+        {{ enrichment.provider }} · {{ enrichment.status }} · {{ enrichment.summary }}
+      </p>
     </article>
+    <template v-if="investigation?.attachments?.length">
+      <h2>{{ t('Contexte des pièces jointes') }}</h2>
+      <article
+        v-for="attachment in investigation.attachments"
+        :key="attachment.index"
+        class="note signal-context"
+      >
+        <h3>{{ attachment.filename }}</h3>
+        <code class="hash">{{ attachment.sha256 }}</code>
+        <p v-if="attachment.ioc_id">
+          <a
+            :href="'/iocs/' + attachment.ioc_id"
+            @click.exact.prevent="router.push('/iocs/' + attachment.ioc_id)"
+            >{{ t('Voir l’indicateur') }}</a
+          >
+          · {{ attachment.analysis_count }} {{ t('Analyses') }} · {{ attachment.case_count }}
+          {{ t('Dossiers') }}
+        </p>
+        <p v-for="campaign in attachment.campaigns" :key="campaign.id">
+          <a
+            :href="'/campaigns/' + campaign.id"
+            @click.exact.prevent="router.push('/campaigns/' + campaign.id)"
+            >{{ t('Campagne') }} · {{ campaign.name }}</a
+          >
+        </p>
+        <p v-for="finding in attachment.static_findings" :key="finding.key">
+          {{ finding.key }} · {{ finding.description }}
+        </p>
+        <p v-for="enrichment in attachment.enrichments" :key="enrichment.id">
+          {{ enrichment.provider }} · {{ enrichment.status }} · {{ enrichment.summary }}
+        </p>
+      </article>
+    </template>
     <h2>{{ t('Emails similaires') }} ({{ similarities.total }})</h2>
     <p class="small muted">
       {{

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
+import PaginationControls from '@/components/PaginationControls.vue'
 import { t } from '@/i18n'
 import { defang, type Request } from '@/workspace'
 type Provider = {
@@ -10,9 +11,15 @@ type Provider = {
   lookup_kinds: string[]
   submission_allowed: { file: boolean; url: boolean }
   health: string
+  secret_source?: 'tenant' | 'environment'
+  last_healthcheck?: { status: string; detail?: string; summary?: string; checked_at: string }
   visibility_default?: string
 }
-type Integration = { mode: string; providers: Provider[] }
+type Integration = {
+  mode: string
+  providers: Provider[]
+  dkim?: { enabled: boolean; allowed: boolean; mode: string }
+}
 type Enrichment = {
   id: number
   provider: string
@@ -42,6 +49,7 @@ const props = defineProps<{
   result?: Record<string, unknown>
   canWrite?: boolean
   admin?: boolean
+  settingsUrl?: string
 }>()
 const config = ref<Integration | null>(null),
   items = ref<Enrichment[]>([]),
@@ -54,6 +62,35 @@ const config = ref<Integration | null>(null),
   visibility = ref('private'),
   confirmed = ref(false)
 const submissionRequestId = ref('')
+const dkimConfirmed = ref(false)
+const dkimRequestId = ref('')
+const enrichmentPage = ref(1)
+const enrichmentTotal = ref(0)
+const enrichmentPageSize = 50
+const urlscanFields: [string, string][] = [
+  ['title', 'Titre de la page'],
+  ['domain', 'Domaine'],
+  ['ip', 'Adresse IP'],
+  ['country', 'Pays'],
+  ['score', 'Score provider'],
+  ['visibility', 'Visibilité']
+]
+function resultLabel(value: string) {
+  return t(
+    (
+      {
+        error: 'Erreur',
+        reachable: 'Accessible',
+        configured: 'Configuré',
+        unconfigured: 'Non configuré',
+        valid: 'Signature valide',
+        invalid: 'Signature invalide',
+        unsigned: 'Aucune signature',
+        unavailable: 'Indisponible'
+      } as Record<string, string>
+    )[value] || value
+  )
+}
 const parsed = computed(() => props.result as Result | undefined)
 const targets = computed(() => {
   const map = new Map<string, { kind: string; value: string }>()
@@ -108,12 +145,40 @@ async function run(action: () => Promise<unknown>) {
 }
 async function load() {
   config.value = await props.request<Integration>('/integrations')
+  await loadEnrichments()
+}
+async function loadEnrichments(page = 1) {
   if (props.analysisId) {
-    const result = await props.request<{ items: Enrichment[] }>(
-      '/analyses/' + props.analysisId + '/enrichments'
+    const result = await props.request<{ items: Enrichment[]; total: number }>(
+      '/analyses/' +
+        props.analysisId +
+        '/enrichments?limit=' +
+        enrichmentPageSize +
+        '&offset=' +
+        (page - 1) * enrichmentPageSize
     )
     items.value = result.items
+    enrichmentTotal.value = result.total
+    enrichmentPage.value = page
   }
+}
+async function verifyDkim() {
+  if (!dkimConfirmed.value || !config.value?.dkim?.allowed) return
+  await run(async () => {
+    await props.request('/analyses/' + props.analysisId + '/dkim', 'POST', {
+      confirm: true,
+      request_id: dkimRequestId.value || (dkimRequestId.value = crypto.randomUUID())
+    })
+    dkimConfirmed.value = false
+    dkimRequestId.value = ''
+    await loadEnrichments()
+  })
+}
+function screenshotLink(value: unknown) {
+  return typeof value === 'string' &&
+    /^https:\/\/urlscan\.io\/screenshots\/[0-9a-f-]{36}\.png$/.test(value)
+    ? value
+    : undefined
 }
 async function lookup() {
   await run(async () => {
@@ -158,6 +223,7 @@ async function health(name: string) {
       'POST'
     )
     message.value = result.summary || result.status || t('Vérification terminée')
+    await load()
   })
 }
 function safeProviderLink(value?: string) {
@@ -174,7 +240,11 @@ function safeProviderLink(value?: string) {
 }
 watch(
   () => props.analysisId,
-  () => run(load),
+  () => {
+    dkimConfirmed.value = false
+    dkimRequestId.value = ''
+    return run(load)
+  },
   { immediate: true }
 )
 watch([provider, submission, visibility], () => {
@@ -214,6 +284,23 @@ watch(provider, () => {
             {{ t('Soumission d’URLs') }}:
             {{ item.submission_allowed.url ? t('Autorisée') : t('Bloquée') }}
           </p>
+          <dl v-if="item.last_healthcheck" class="integration-health">
+            <dt>{{ t('Dernier contrôle') }}</dt>
+            <dd>{{ item.last_healthcheck.checked_at }}</dd>
+            <dt>{{ t('Santé du provider') }}</dt>
+            <dd>{{ resultLabel(item.last_healthcheck.status) }}</dd>
+            <dt v-if="item.last_healthcheck.detail || item.last_healthcheck.summary">
+              {{
+                item.last_healthcheck.status === 'error'
+                  ? t('Dernière erreur')
+                  : t('Détail du contrôle')
+              }}
+            </dt>
+            <dd v-if="item.last_healthcheck.detail || item.last_healthcheck.summary">
+              {{ item.last_healthcheck.detail || item.last_healthcheck.summary }}
+            </dd>
+          </dl>
+          <p v-else class="small muted">{{ t('Aucun contrôle enregistré.') }}</p>
           <button
             v-if="admin"
             class="secondary"
@@ -223,7 +310,13 @@ watch(provider, () => {
             {{ t('Tester la connexion au provider') }}
           </button>
         </article>
-        <p>
+        <p v-if="config.providers.some((item) => item.secret_source === 'tenant')">
+          {{
+            t('Les clés et autorisations sont gérées dans les paramètres de votre organisation.')
+          }}
+          <a v-if="admin && settingsUrl" :href="settingsUrl">{{ t('Gérer les intégrations') }} →</a>
+        </p>
+        <p v-else>
           {{
             t(
               'Configurez les providers et les autorisations dans les variables du déploiement. Les secrets ne sont jamais affichés ici.'
@@ -290,6 +383,29 @@ watch(provider, () => {
             </form>
           </details></template
         >
+        <section v-if="config.dkim" class="note dkim-check">
+          <h3>{{ t('Vérifier la signature DKIM') }}</h3>
+          <p>
+            {{
+              t(
+                'Les domaines de signature sont transmis au résolveur DNS configuré. Le message reste local. Cette vérification est distincte des déclarations des en-têtes.'
+              )
+            }}
+          </p>
+          <p v-if="!config.dkim.allowed" class="small muted">
+            {{ t('La vérification DNS DKIM est désactivée par la politique de connectivité.') }}
+          </p>
+          <form v-if="canWrite" @submit.prevent="verifyDkim">
+            <label class="security-check"
+              ><input v-model="dkimConfirmed" type="checkbox" :disabled="!config.dkim.allowed" />{{
+                t('J’autorise cette consultation DNS explicite.')
+              }}</label
+            >
+            <button class="secondary" :disabled="busy || !config.dkim.allowed || !dkimConfirmed">
+              {{ t('Vérifier DKIM') }}
+            </button>
+          </form>
+        </section>
         <p v-if="!items.length" class="small muted">{{ t('Aucun enrichissement enregistré.') }}</p>
         <article v-for="item in items" :key="item.id" class="note">
           <strong>{{ item.provider }} · {{ item.action }} · {{ item.status }}</strong>
@@ -306,6 +422,74 @@ watch(provider, () => {
             <dd>{{ item.unknown ?? '—' }}</dd>
           </dl>
           <small>{{ item.first_seen }} · {{ item.file_type }} · {{ item.created_at }}</small>
+          <section v-if="item.provider === 'urlscan'" class="urlscan-details">
+            <h3>{{ t('Observation urlscan') }}</h3>
+            <dl>
+              <template v-for="[key, label] in urlscanFields" :key="key">
+                <dt>{{ t(label) }}</dt>
+                <dd>
+                  {{
+                    typeof item.metadata?.[key] === 'string'
+                      ? defang(String(item.metadata[key]))
+                      : (item.metadata?.[key] ?? '—')
+                  }}
+                </dd>
+              </template>
+            </dl>
+            <template
+              v-if="Array.isArray(item.metadata?.categories) && item.metadata.categories.length"
+            >
+              <h4>{{ t('Catégories') }}</h4>
+              <ul>
+                <li v-for="(category, index) in item.metadata.categories" :key="index">
+                  {{ category }}
+                </li>
+              </ul>
+            </template>
+            <template
+              v-if="
+                Array.isArray(item.metadata?.redirect_chain) && item.metadata.redirect_chain.length
+              "
+            >
+              <h4>{{ t('Redirections observées') }}</h4>
+              <ol>
+                <li v-for="(url, index) in item.metadata.redirect_chain" :key="index">
+                  <code>{{ defang(String(url)) }}</code>
+                </li>
+              </ol>
+              <p v-if="item.metadata.redirect_chain_complete !== true" class="small muted">
+                {{ t('Cette chaîne peut être incomplète ; elle reflète le rapport du provider.') }}
+              </p>
+            </template>
+            <p class="small muted">
+              {{
+                t(
+                  'Aucune capture ni ressource distante n’est chargée ici. Ouvrez le rapport du provider pour les consulter.'
+                )
+              }}
+            </p>
+            <a
+              v-if="screenshotLink(item.metadata?.screenshot_url)"
+              :href="screenshotLink(item.metadata.screenshot_url)"
+              target="_blank"
+              rel="noopener noreferrer"
+              >{{ t('Ouvrir la capture chez urlscan') }} ↗</a
+            >
+          </section>
+          <dl v-if="item.provider === 'dkim'">
+            <dt>{{ t('Vérification DKIM') }}</dt>
+            <dd>{{ resultLabel(String(item.metadata?.verification || 'unavailable')) }}</dd>
+            <dt>{{ t('Domaines signataires') }}</dt>
+            <dd>
+              {{
+                Array.isArray(item.metadata?.signing_domains)
+                  ? item.metadata.signing_domains.map(String).map(defang).join(', ')
+                  : '—'
+              }}
+            </dd>
+            <dt>{{ t('Preuve vérifiée (SHA-256)') }}</dt>
+            <dd class="hash">{{ item.metadata?.source_sha256 || '—' }}</dd>
+          </dl>
           <p>
             <a
               v-if="safeProviderLink(item.external_url)"
@@ -328,6 +512,14 @@ watch(provider, () => {
             <pre>{{ JSON.stringify(item.metadata, null, 2) }}</pre>
           </details>
         </article>
+        <PaginationControls
+          :total="enrichmentTotal"
+          :page="enrichmentPage"
+          :page_size="enrichmentPageSize"
+          :pages="Math.ceil(enrichmentTotal / enrichmentPageSize)"
+          :busy="busy"
+          @change="(page) => run(() => loadEnrichments(page))"
+        />
       </template>
     </template>
   </section>

@@ -17,6 +17,7 @@ Configure these values in the server environment (or a deployment secret manager
 | `URLSCAN_API_KEY` | empty | Administrator's urlscan key |
 | `VIRUSTOTAL_LOOKUP_ENABLED` | `true` | Allows read operations only when mode permits |
 | `URLSCAN_LOOKUP_ENABLED` | `true` | Allows read operations only when mode permits |
+| `DKIM_LOOKUP_ENABLED` | `false` | Allows the separate, explicitly confirmed DKIM DNS verification action when mode permits |
 | `VIRUSTOTAL_ALLOW_FILE_SUBMISSION` | `false` | Separate connected-mode authorization for attachment uploads |
 | `VIRUSTOTAL_ALLOW_URL_SUBMISSION` | `false` | Separate connected-mode authorization for scanning URLs |
 | `URLSCAN_ALLOW_URL_SUBMISSION` | `false` | Separate connected-mode authorization for scanning URLs |
@@ -60,6 +61,7 @@ Routes are under `/api/workspace`:
 | `POST /analyses/{id}/enrichments/lookup` | Writer | `{provider,kind,value}`; target must occur in the analysis evidence |
 | `POST /analyses/{id}/enrichments/submit` | Writer | `{provider,kind,confirm:true,attachment_index? ,value?,visibility?,request_id?}` |
 | `POST /analyses/{id}/enrichments/{enrichment_id}/poll` | Writer | Polls the stored provider/job for this exact analysis; caller cannot supply a job URL or ID |
+| `POST /analyses/{id}/dkim` | Writer | Explicit `{confirm:true,request_id?}` verification against checked original bytes, separately gated by DKIM policy |
 
 File submission selects only a zero-based attachment index. URL submission selects only a URL extracted from the email. Analyst-added case IOCs do not grant permission to send arbitrary values. Attachment bytes are rechecked against their stored SHA-256. Missing analyses, missing/tampered evidence, unsupported target kinds and incompatible fields are refused before network access.
 
@@ -76,5 +78,7 @@ State is persisted before an external request. A network timeout or process cras
 `tests_workspace/test_enrichment*.py` covers the draft policy contract, fixed HTTP protocols, no upload on lookup miss, offline behavior, role/CSRF checks, evidence binding, integrity validation, error redaction, visibility defaults, idempotency, persistence, rate/poll limits, response-size and total-time limits. All provider tests inject mocks; no real credentials, scans or external uploads were used. Live account entitlements, provider availability and production quotas remain deployment checks performed explicitly with the operator's own key.
 
 The contract is extensible; MISP, OpenCTI, AbuseIPDB and additional sandbox integrations are not implemented. Community does not supply tenant-specific credentials or policies. Enterprise must provide isolated scope and governance when it composes these capabilities.
+
+See [Investigation report contract](INVESTIGATION_REPORT.md) for identity and URL/attachment context, persisted enrichment exports, and the separate DKIM action. DKIM DNS checks use an isolated cryptographic process with explicit time/CPU/memory bounds; a valid signature is never treated as a phishing verdict. Ingestion and report reads remain local-only.
 
 Protocols were checked against the official documentation on 2026-09-23: [VT file reports](https://docs.virustotal.com/reference/file-info), [VT file upload](https://docs.virustotal.com/reference/files-scan), [VT URL identifiers](https://docs.virustotal.com/reference/url), [VT URL submission](https://docs.virustotal.com/reference/scan-url), [VT analysis polling](https://docs.virustotal.com/reference/analysis), [urlscan API](https://urlscan.io/docs/api/), [urlscan search](https://urlscan.io/docs/search/) and [urlscan result schema](https://urlscan.io/docs/result/).

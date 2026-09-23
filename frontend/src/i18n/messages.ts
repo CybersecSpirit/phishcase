@@ -383,5 +383,68 @@ export const messages: Record<string, string> = {
   'Détails de l’événement': 'Event details',
   'Compte Cloud': 'Cloud account',
   'Créer un compte': 'Create an account',
-  'Mot de passe oublié': 'Forgot password'
+  'Mot de passe oublié': 'Forgot password',
+  'Dernier contrôle': 'Last check',
+  'Santé du provider': 'Provider health',
+  'Dernière erreur': 'Last error',
+  'Détail du contrôle': 'Check details',
+  'Aucun contrôle enregistré.': 'No check recorded.',
+  'Les clés et autorisations sont gérées dans les paramètres de votre organisation.':
+    'Keys and permissions are managed in your organization settings.',
+  'Gérer les intégrations': 'Manage integrations',
+  'Observation urlscan': 'urlscan observation',
+  'Titre de la page': 'Page title',
+  'Adresse IP': 'IP address',
+  Pays: 'Country',
+  'Score provider': 'Provider score',
+  Catégories: 'Categories',
+  'Redirections observées': 'Observed redirects',
+  'Cette chaîne peut être incomplète ; elle reflète le rapport du provider.':
+    'This chain may be incomplete; it reflects the provider report.',
+  'Aucune capture ni ressource distante n’est chargée ici. Ouvrez le rapport du provider pour les consulter.':
+    'No screenshot or remote resource is loaded here. Open the provider report to view them.',
+  'Ouvrir la capture chez urlscan': 'Open screenshot on urlscan',
+  'Vérifier la signature DKIM': 'Verify the DKIM signature',
+  'Les domaines de signature sont transmis au résolveur DNS configuré. Le message reste local. Cette vérification est distincte des déclarations des en-têtes.':
+    'Signing domains are sent to the configured DNS resolver. The message stays local. This check is separate from header claims.',
+  'La vérification DNS DKIM est désactivée par la politique de connectivité.':
+    'DKIM DNS verification is disabled by connectivity policy.',
+  'J’autorise cette consultation DNS explicite.': 'I authorize this explicit DNS lookup.',
+  'Vérifier DKIM': 'Verify DKIM',
+  'Vérification DKIM': 'DKIM verification',
+  'Domaines signataires': 'Signing domains',
+  'Preuve vérifiée (SHA-256)': 'Verified evidence (SHA-256)',
+  Accessible: 'Reachable',
+  'Signature valide': 'Valid signature',
+  'Signature invalide': 'Invalid signature',
+  'Aucune signature': 'No signature',
+  Indisponible: 'Unavailable',
+  'Nom affiché': 'Display name',
+  'Déclaration non vérifiée': 'Unverified claim',
+  'Relais déclarant': 'Reporting relay',
+  'Du premier au dernier relais déclaré. Les dates et relais reçus ne constituent pas une preuve de confiance.':
+    'From the first to the last declared relay. Received dates and relays are not proof of trust.',
+  'Texte du lien': 'Link text',
+  'Le texte du lien et sa destination diffèrent. Vérifiez le contexte avant de conclure.':
+    'The link text and destination differ. Check the context before drawing a conclusion.',
+  'Voir l’indicateur': 'View indicator',
+  'Contexte des pièces jointes': 'Attachment context',
+  'Télécharger le paquet de preuves': 'Download evidence package',
+  'Le paquet contient l’original et son manifeste. Cochez les pièces jointes à y ajouter ; aucune n’est incluse par défaut.':
+    'The package contains the original and its manifest. Select attachments to add; none are included by default.',
+  'Inclure dans le paquet': 'Include in package',
+  'Verdicts en attente': 'Pending verdicts',
+  'Décisions humaines attendues': 'Awaiting analyst decisions',
+  'Campagnes actives': 'Active campaigns',
+  'Investigations regroupées': 'Grouped investigations',
+  'Analyses récentes': 'Recent analyses',
+  'Voir les analyses': 'View analyses',
+  'IOC fréquents': 'Frequent indicators',
+  '9 derniers événements': 'Latest 9 events',
+  'Le domaine Return-Path diffère du domaine expéditeur. Un service de routage légitime peut expliquer cet écart.':
+    'The Return-Path domain differs from the sender domain. A legitimate delivery service may explain the difference.',
+  'Le nom affiché mentionne un autre domaine que l’adresse expéditeur. Vérifiez l’identité revendiquée.':
+    'The display name mentions a different domain than the sender address. Check the claimed identity.',
+  'Une incohérence d’identité est déclarée ; vérifiez les en-têtes et le contexte.':
+    'An identity inconsistency is reported; check the headers and context.'
 }

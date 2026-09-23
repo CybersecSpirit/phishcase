@@ -92,7 +92,16 @@ def capabilities(user):
                 "checked_at": row["checked_at"],
             }
         entries.append(entry)
-    return {"mode": connectivity.mode(), "providers": entries}
+    return {
+        "mode": connectivity.mode(),
+        "providers": entries,
+        "dkim": {
+            "enabled": connectivity.dkim_enabled(),
+            "allowed": connectivity.dkim_allowed()
+            and user["role"] in {"admin", "analyst"},
+            "mode": connectivity.mode(),
+        },
+    }
 
 
 @router.get("/integrations")

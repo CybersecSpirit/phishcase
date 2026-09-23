@@ -28,3 +28,7 @@ this candidate. A review of the candidate diff and private Cloud isolation/billi
 suite is separate. Cloud results belong in the private repository. Public signup,
 transactional email, Stripe checkout, TLS and backup restore on the VPS must be
 verified before declaring a production release.
+
+## Completion pass — 2026-09-23
+
+The new investigation/report/DKIM regression suite and existing workspace suite passed on macOS: **114 tests and 30 subtests**, with the Linux-specific address-space limit check skipped on macOS. The new DKIM checks use a real isolated cryptographic process and injected synthetic DNS, including CPU and deadline termination. No external DNS/provider was queried. The Community frontend passed **71 tests**, TypeScript and build after the dashboard, structured observations, package selection and pagination updates. A subsequent Linux CI/container run is required for the memory-limit assertion and historical engine tests. These are functional/regression checks, not a replacement of the revision-specific security reports.

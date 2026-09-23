@@ -19,6 +19,7 @@ from loguru import logger
 
 from .assessment import summarize
 from .evidence import original, storage
+from .failures import AnalysisError, failure_message
 from .processing import extract_iocs
 from .store import audit, db
 
@@ -222,11 +223,18 @@ def analyze_isolated(raw: bytes, child_environment=None) -> dict:
             env=environment,
         )
         try:
-            process.wait(timeout=int(os.environ.get("JOB_TIMEOUT_SECONDS", "180")))
+            try:
+                process.wait(timeout=int(os.environ.get("JOB_TIMEOUT_SECONDS", "180")))
+            except subprocess.TimeoutExpired:
+                raise AnalysisError("parser_timeout") from None
             if process.returncode or not output.exists():
-                raise ValueError("Parser rejected the file or exceeded resource limits")
+                raise AnalysisError(
+                    "resource_limit"
+                    if process.returncode and process.returncode < 0
+                    else "parser_rejected"
+                )
             if output.stat().st_size > 64 * 1024 * 1024:
-                raise ValueError("Report exceeds size limit")
+                raise AnalysisError("report_limit")
             return json.loads(output.read_text())
         except BaseException:
             if process.poll() is None:
@@ -314,15 +322,18 @@ def run_once(analyzer=analyze_isolated):
     logger.bind(job_id=job["id"], analysis_id=job["analysis_id"]).info(
         "analysis.started"
     )
+    phase = "evidence"
     try:
         with db() as conn:
             raw = original(conn, job["analysis_id"])
+        phase = "parser"
         document = analyzer(raw)
+        phase = "persistence"
         finish(job, document=document)
-    except Exception:
+    except Exception as exc:
         finish(
             job,
-            error="Analysis failed or timed out; original preserved. Retry available.",
+            error=failure_message(exc, phase),
         )
         logger.bind(job_id=job["id"], analysis_id=job["analysis_id"]).warning(
             "analysis.failed"

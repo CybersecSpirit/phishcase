@@ -20,6 +20,17 @@ def lookups_allowed() -> bool:
     return mode() in {"restricted", "connected"}
 
 
+def dkim_enabled() -> bool:
+    factory = policy_factory.get()
+    if factory is not None:
+        return factory().get("dkim", {}).get("enabled", False) is True
+    return os.environ.get("DKIM_LOOKUP_ENABLED", "false").lower() == "true"
+
+
+def dkim_allowed() -> bool:
+    return lookups_allowed() and dkim_enabled()
+
+
 def provider_lookups_allowed(provider: str) -> bool:
     factory = policy_factory.get()
     enabled = (
