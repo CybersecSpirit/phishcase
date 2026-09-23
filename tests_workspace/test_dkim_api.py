@@ -2,8 +2,10 @@ import asyncio
 import base64
 import os
 import sys
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -315,3 +317,142 @@ class DKIMTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 409)
                 self.assertNotIn("sensitive", response.text)
             dns.assert_not_called()
+
+    def test_pending_protects_active_check_and_explicit_recovery_fences_late_result(
+        self,
+    ):
+        identity = self.upload()
+        entered, release = threading.Event(), threading.Event()
+
+        async def paused_crypto(_raw):
+            entered.set()
+            await asyncio.to_thread(release.wait, 10)
+            return {
+                "verification": "valid",
+                "reason_code": "signature_verified",
+                "dns_queries": [],
+                "signing_domains": [],
+            }
+
+        path = BASE + f"/analyses/{identity}/dkim"
+        request_id = str(uuid4())
+        with (
+            patch.dict(
+                os.environ,
+                {"CONNECTIVITY_MODE": "restricted", "DKIM_LOOKUP_ENABLED": "true"},
+            ),
+            patch(
+                "backend.investigation.dkim_api.verify_original",
+                side_effect=paused_crypto,
+            ),
+            patch(
+                "backend.investigation.dkim_api.resolve_txt",
+                new=AsyncMock(
+                    side_effect=AssertionError("Recovery must never query DNS")
+                ),
+            ),
+            ThreadPoolExecutor(max_workers=1) as executor,
+        ):
+            future = executor.submit(
+                self.client.post, path, json={"confirm": True, "request_id": request_id}
+            )
+            try:
+                self.assertTrue(entered.wait(3))
+                history = self.client.get(
+                    BASE + f"/analyses/{identity}/enrichments"
+                ).json()
+                active = history["items"][0]
+                self.assertEqual((history["total"], active["status"]), (1, "pending"))
+                recovery = path + f"/{active['id']}/recover"
+                self.assertEqual(
+                    self.client.post(recovery, json={"confirm": True}).status_code, 409
+                )
+                self.assertEqual(
+                    self.client.post(path, json={"confirm": True}).status_code, 409
+                )
+                replay = self.client.post(
+                    path, json={"confirm": True, "request_id": request_id}
+                ).json()
+                self.assertEqual(
+                    (replay["id"], replay["status"]), (active["id"], "pending")
+                )
+                with db() as conn:
+                    self.assertEqual(
+                        conn.execute("SELECT count(*) FROM enrichments").fetchone()[0],
+                        1,
+                    )
+                    conn.execute(
+                        "UPDATE enrichments SET poll_after=0 WHERE id=?",
+                        (active["id"],),
+                    )
+                with patch.dict(os.environ, {"CONNECTIVITY_MODE": "offline"}):
+                    self.assertEqual(
+                        self.client.post(recovery, json={"confirm": False}).status_code,
+                        422,
+                    )
+                    recovered = self.client.post(recovery, json={"confirm": True})
+                    self.assertEqual(recovered.status_code, 200, recovered.text)
+                    self.assertEqual(
+                        recovered.json()["metadata"]["reason_code"],
+                        "verification_interrupted",
+                    )
+                    self.assertEqual(
+                        self.client.post(recovery, json={"confirm": True}).json()[
+                            "status"
+                        ],
+                        "unavailable",
+                    )
+            finally:
+                release.set()
+            response = future.result(timeout=5)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(
+                response.json()["metadata"]["reason_code"], "verification_interrupted"
+            )
+        with db() as conn:
+            self.assertEqual(
+                conn.execute(
+                    "SELECT count(*) FROM events WHERE action='authentication.dkim_recovered'"
+                ).fetchone()[0],
+                1,
+            )
+            self.assertEqual(
+                conn.execute(
+                    "SELECT count(*) FROM events WHERE action='authentication.dkim_checked'"
+                ).fetchone()[0],
+                0,
+            )
+
+    def test_recovery_is_scoped_to_analysis_role_and_confirmed_session(self):
+        identity, other = self.upload(helpers.EMAIL), self.upload(helpers.EMAIL)
+        with patch.dict(
+            os.environ,
+            {"CONNECTIVITY_MODE": "restricted", "DKIM_LOOKUP_ENABLED": "true"},
+        ):
+            result = self.client.post(
+                BASE + f"/analyses/{identity}/dkim", json={"confirm": True}
+            ).json()
+        with db() as conn:
+            conn.execute(
+                "UPDATE enrichments SET status='pending',poll_after=0 WHERE id=?",
+                (result["id"],),
+            )
+        path = BASE + f"/analyses/{identity}/dkim/{result['id']}/recover"
+        self.assertEqual(
+            self.client.post(
+                BASE + f"/analyses/{other}/dkim/{result['id']}/recover",
+                json={"confirm": True},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                path, json={"confirm": True}, headers={"X-Requested-With": ""}
+            ).status_code,
+            403,
+        )
+        with db() as conn:
+            conn.execute("UPDATE users SET role='viewer' WHERE username='admin'")
+        self.assertEqual(
+            self.client.post(path, json={"confirm": True}).status_code, 403
+        )

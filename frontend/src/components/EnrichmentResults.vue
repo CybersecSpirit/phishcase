@@ -64,6 +64,7 @@ const config = ref<Integration | null>(null),
 const submissionRequestId = ref('')
 const dkimConfirmed = ref(false)
 const dkimRequestId = ref('')
+const dkimRecoveryConfirmed = ref<Record<number, boolean>>({})
 const enrichmentPage = ref(1)
 const enrichmentTotal = ref(0)
 const enrichmentPageSize = 50
@@ -174,6 +175,16 @@ async function verifyDkim() {
     await loadEnrichments()
   })
 }
+async function recoverDkim(id: number) {
+  if (!dkimRecoveryConfirmed.value[id]) return
+  await run(async () => {
+    await props.request('/analyses/' + props.analysisId + '/dkim/' + id + '/recover', 'POST', {
+      confirm: true
+    })
+    delete dkimRecoveryConfirmed.value[id]
+    await loadEnrichments(enrichmentPage.value)
+  })
+}
 function screenshotLink(value: unknown) {
   return typeof value === 'string' &&
     /^https:\/\/urlscan\.io\/screenshots\/[0-9a-f-]{36}\.png$/.test(value)
@@ -243,6 +254,7 @@ watch(
   () => {
     dkimConfirmed.value = false
     dkimRequestId.value = ''
+    dkimRecoveryConfirmed.value = {}
     return run(load)
   },
   { immediate: true }
@@ -406,6 +418,13 @@ watch(provider, () => {
             </button>
           </form>
         </section>
+        <button
+          class="secondary"
+          :disabled="busy"
+          @click="run(() => loadEnrichments(enrichmentPage))"
+        >
+          {{ t('Actualiser l’historique') }}
+        </button>
         <p v-if="!items.length" class="small muted">{{ t('Aucun enrichissement enregistré.') }}</p>
         <article v-for="item in items" :key="item.id" class="note">
           <strong>{{ item.provider }} · {{ item.action }} · {{ item.status }}</strong>
@@ -478,7 +497,13 @@ watch(provider, () => {
           </section>
           <dl v-if="item.provider === 'dkim'">
             <dt>{{ t('Vérification DKIM') }}</dt>
-            <dd>{{ resultLabel(String(item.metadata?.verification || 'unavailable')) }}</dd>
+            <dd>
+              {{
+                item.status === 'pending'
+                  ? t('En cours')
+                  : resultLabel(String(item.metadata?.verification || 'unavailable'))
+              }}
+            </dd>
             <dt>{{ t('Domaines signataires') }}</dt>
             <dd>
               {{
@@ -499,7 +524,7 @@ watch(provider, () => {
               >{{ t('Ouvrir le rapport du provider') }} ↗</a
             >
             <button
-              v-if="canWrite && item.status === 'pending'"
+              v-if="canWrite && item.status === 'pending' && item.provider !== 'dkim'"
               class="secondary"
               :disabled="busy"
               @click="poll(item.id)"
@@ -507,6 +532,26 @@ watch(provider, () => {
               {{ t('Récupérer le résultat') }}
             </button>
           </p>
+          <form
+            v-if="canWrite && item.status === 'pending' && item.provider === 'dkim'"
+            class="dkim-recovery"
+            @submit.prevent="recoverDkim(item.id)"
+          >
+            <p>
+              {{
+                t(
+                  'Après une minute, vous pouvez clore une vérification interrompue. Cette action ne contacte aucun résolveur DNS et ne relance pas la vérification.'
+                )
+              }}
+            </p>
+            <label class="security-check">
+              <input v-model="dkimRecoveryConfirmed[item.id]" type="checkbox" />
+              {{ t('Je confirme la clôture de cette vérification interrompue.') }}
+            </label>
+            <button class="secondary" :disabled="busy || !dkimRecoveryConfirmed[item.id]">
+              {{ t('Clore la vérification interrompue') }}
+            </button>
+          </form>
           <details v-if="Object.keys(item.metadata || {}).length">
             <summary>{{ t('Métadonnées du provider') }}</summary>
             <pre>{{ JSON.stringify(item.metadata, null, 2) }}</pre>

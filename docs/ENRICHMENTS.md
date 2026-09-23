@@ -62,6 +62,7 @@ Routes are under `/api/workspace`:
 | `POST /analyses/{id}/enrichments/submit` | Writer | `{provider,kind,confirm:true,attachment_index? ,value?,visibility?,request_id?}` |
 | `POST /analyses/{id}/enrichments/{enrichment_id}/poll` | Writer | Polls the stored provider/job for this exact analysis; caller cannot supply a job URL or ID |
 | `POST /analyses/{id}/dkim` | Writer | Explicit `{confirm:true,request_id?}` verification against checked original bytes, separately gated by DKIM policy |
+| `POST /analyses/{id}/dkim/{enrichment_id}/recover` | Writer | Explicit `{confirm:true}` closure of an interrupted DKIM operation after its recovery deadline; local-only, no DNS/retry |
 
 File submission selects only a zero-based attachment index. URL submission selects only a URL extracted from the email. Analyst-added case IOCs do not grant permission to send arbitrary values. Attachment bytes are rechecked against their stored SHA-256. Missing analyses, missing/tampered evidence, unsupported target kinds and incompatible fields are refused before network access.
 

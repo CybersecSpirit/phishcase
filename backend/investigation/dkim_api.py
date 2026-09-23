@@ -8,6 +8,7 @@ import re
 import signal
 import sys
 import tempfile
+import time
 from contextlib import suppress
 from pathlib import Path
 from typing import Literal
@@ -20,7 +21,7 @@ from pydantic import BaseModel, ConfigDict
 from . import connectivity
 from .auth import Writer
 from .enrichment import EnrichmentResult, EnrichmentStatus, target
-from .enrichment_api import analysis_record, reserve, save_result
+from .enrichment_api import analysis_record, decode, now, reserve
 from .evidence import original
 from .store import audit, db
 
@@ -29,12 +30,18 @@ MAX_SIGNATURES = 5
 MAX_DNS_BYTES = 4096
 MAX_MESSAGE_BYTES = 20 * 1024 * 1024
 VERIFICATION_TIMEOUT = 10
+RECOVERY_DELAY = 60
 
 
 class VerificationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: Literal[True]
     request_id: UUID | None = None
+
+
+class RecoveryInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: Literal[True]
 
 
 class VerificationUnavailableError(Exception):
@@ -198,6 +205,78 @@ async def verify_original(raw, resolver=None):
     }
 
 
+def persist_terminal(conn, row, result, user, case_id, action):
+    conn.execute(
+        "UPDATE enrichments SET status=?,result=?,updated_at=?,poll_after=0 WHERE id=? AND status='pending'",
+        (result.status, json.dumps(result.public()), now(), row["id"]),
+    )
+    audit(conn, user["id"], action, case_id, result.metadata["verification"])
+    return decode(
+        conn.execute("SELECT * FROM enrichments WHERE id=?", (row["id"],)).fetchone()
+    )
+
+
+def complete_verification(identifier, result, user, case_id):
+    # Same write transaction/tenant advisory lock as purge: terminal state and
+    # audit must become visible together. A recovered operation is never revived.
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM enrichments WHERE id=?", (identifier,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(410, "Verification evidence is no longer available")
+        if row["status"] != "pending":
+            return decode(row)
+        return persist_terminal(
+            conn, row, result, user, case_id, "authentication.dkim_checked"
+        )
+
+
+@router.post("/analyses/{analysis_id}/dkim/{enrichment_id}/recover")
+def recover_dkim(
+    analysis_id: str, enrichment_id: str, data: RecoveryInput, user: Writer
+):
+    # This explicitly closes an interrupted local operation. It needs neither
+    # egress permission nor a DNS request and never starts another verification.
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        analysis = analysis_record(conn, analysis_id)
+        row = conn.execute(
+            "SELECT * FROM enrichments WHERE id=? AND analysis_id=? AND provider='dkim' AND action='verify'",
+            (enrichment_id, analysis_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "DKIM verification not found")
+        if row["status"] != "pending":
+            return decode(row)
+        if row["poll_after"] > time.time():
+            raise HTTPException(
+                409, "DKIM verification is still active; recovery is not available yet"
+            )
+        result = EnrichmentResult(
+            "dkim",
+            target("sha256", row["value"]),
+            EnrichmentStatus.UNAVAILABLE,
+            summary="Interrupted DKIM verification closed without a DNS request. A new check requires an explicit action.",
+            metadata={
+                "verification": "unavailable",
+                "reason_code": "verification_interrupted",
+                "source_sha256": row["value"],
+                "signing_domains": [],
+                "dns_queries": [],
+            },
+        )
+        return persist_terminal(
+            conn,
+            row,
+            result,
+            user,
+            analysis["case_id"],
+            "authentication.dkim_recovered",
+        )
+
+
 @router.post("/analyses/{analysis_id}/dkim")
 async def verify_dkim(analysis_id: str, data: VerificationInput, user: Writer):
     if not connectivity.dkim_allowed():
@@ -222,25 +301,34 @@ async def verify_dkim(analysis_id: str, data: VerificationInput, user: Writer):
             str(data.request_id) if data.request_id else None,
         )
         if duplicate:
-            from .enrichment_api import decode
-
             return decode(row)
-        incomplete = EnrichmentResult(
+        pending = conn.execute(
+            "SELECT id FROM enrichments WHERE analysis_id=? AND provider='dkim' AND action='verify' AND status='pending' AND id<>?",
+            (analysis_id, row["id"]),
+        ).fetchone()
+        if pending:
+            # Raising inside the write transaction rolls back the new reserve
+            # and its rate slot. Existing request IDs still replay their result.
+            raise HTTPException(
+                409,
+                "A DKIM verification is pending; recover it explicitly if interrupted",
+            )
+        active = EnrichmentResult(
             "dkim",
             selected,
-            EnrichmentStatus.UNAVAILABLE,
-            summary="DKIM verification has not completed; retry explicitly if interrupted.",
+            EnrichmentStatus.PENDING,
+            summary="DKIM verification is active. An interrupted check may be closed explicitly after its recovery deadline.",
             metadata={
                 "verification": "unavailable",
-                "reason_code": "verification_incomplete",
+                "reason_code": "verification_in_progress",
                 "source_sha256": analysis["sha256"],
                 "signing_domains": [],
                 "dns_queries": [],
             },
         )
         conn.execute(
-            "UPDATE enrichments SET status=?,result=?,poll_after=0 WHERE id=?",
-            (incomplete.status, json.dumps(incomplete.public()), row["id"]),
+            "UPDATE enrichments SET result=?,poll_after=? WHERE id=?",
+            (json.dumps(active.public()), time.time() + RECOVERY_DELAY, row["id"]),
         )
     if analysis["filename"].lower().endswith(".msg"):
         result = {
@@ -265,7 +353,7 @@ async def verify_dkim(analysis_id: str, data: VerificationInput, user: Writer):
         if result["verification"] == "unavailable"
         else EnrichmentStatus.AVAILABLE
     )
-    saved = save_result(
+    return complete_verification(
         row["id"],
         EnrichmentResult(
             "dkim",
@@ -277,13 +365,6 @@ async def verify_dkim(analysis_id: str, data: VerificationInput, user: Writer):
             + ". A signature result is not a phishing verdict.",
             metadata=result,
         ),
+        user,
+        analysis["case_id"],
     )
-    with db() as conn:
-        audit(
-            conn,
-            user["id"],
-            "authentication.dkim_checked",
-            analysis["case_id"],
-            result["verification"],
-        )
-    return saved

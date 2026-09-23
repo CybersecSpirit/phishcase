@@ -411,6 +411,12 @@ export const messages: Record<string, string> = {
     'DKIM DNS verification is disabled by connectivity policy.',
   'J’autorise cette consultation DNS explicite.': 'I authorize this explicit DNS lookup.',
   'Vérifier DKIM': 'Verify DKIM',
+  'Actualiser l’historique': 'Refresh history',
+  'Après une minute, vous pouvez clore une vérification interrompue. Cette action ne contacte aucun résolveur DNS et ne relance pas la vérification.':
+    'After one minute, you can close an interrupted check. This action contacts no DNS resolver and does not restart verification.',
+  'Je confirme la clôture de cette vérification interrompue.':
+    'I confirm closing this interrupted check.',
+  'Clore la vérification interrompue': 'Close interrupted check',
   'Vérification DKIM': 'DKIM verification',
   'Domaines signataires': 'Signing domains',
   'Preuve vérifiée (SHA-256)': 'Verified evidence (SHA-256)',

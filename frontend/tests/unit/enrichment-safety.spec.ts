@@ -123,6 +123,49 @@ describe('safe investigation surfaces', () => {
     )
     wrapper.unmount()
   })
+  it('closes interrupted DKIM explicitly while offline without polling or restarting DNS', async () => {
+    setLocale('en')
+    let recovered = false
+    const request = vi.fn(async (path: string, method?: string) => {
+      if (path === '/integrations')
+        return {
+          mode: 'offline',
+          providers: [],
+          dkim: { enabled: false, allowed: false, mode: 'offline' }
+        }
+      if (path === '/analyses/a/dkim/42/recover' && method === 'POST') recovered = true
+      return {
+        total: 1,
+        items: [
+          {
+            id: 42,
+            provider: 'dkim',
+            action: 'verify',
+            status: recovered ? 'unavailable' : 'pending',
+            target: { kind: 'sha256', value: 'abc' },
+            summary: 'Interrupted check',
+            metadata: { verification: 'unavailable', reason_code: 'verification_interrupted' }
+          }
+        ]
+      }
+    })
+    const wrapper = mount(EnrichmentResults, {
+      props: { request, analysisId: 'a', canWrite: true }
+    })
+    await flushPromises()
+    expect(request.mock.calls.every(([, method]) => method === undefined)).toBe(true)
+    expect(wrapper.text()).not.toContain('Fetch result')
+    expect(wrapper.get('.dkim-recovery button').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('contacts no DNS resolver')
+    await wrapper.get('.dkim-recovery input').setValue(true)
+    await wrapper.get('.dkim-recovery').trigger('submit')
+    await flushPromises()
+    expect(request).toHaveBeenCalledWith('/analyses/a/dkim/42/recover', 'POST', { confirm: true })
+    expect(request.mock.calls.filter(([, method]) => method === 'POST')).toHaveLength(1)
+    expect(wrapper.find('.dkim-recovery').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Unavailable')
+    wrapper.unmount()
+  })
   it('uses projected identity, chronological hops and related evidence without remote content', async () => {
     setLocale('en')
     const request = vi.fn(async () => ({ items: [], total: 0, page: 1, pages: 0 }))
