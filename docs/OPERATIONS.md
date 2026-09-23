@@ -46,8 +46,17 @@ Do not put keys in Git, query strings or browser JavaScript.
 
 ## Health and logs
 
-`/health` confirms HTTP liveness. `/ready` also checks SQLite, writable storage,
-and a worker heartbeat within five minutes. Readiness returns 503 on failure.
+`/health` confirms HTTP liveness. `/ready` also checks SQLite, usable evidence
+storage and a worker heartbeat within five minutes. Storage readiness requires
+at least **256 MiB available to the service account**, a fixed minimum reserve
+in `backend/investigation/readiness.py`. In the evidence directory it exclusively
+creates a unique 0600 probe, writes 4 KiB, flushes and fsyncs it, removes only that
+probe, then fsyncs the directory. The configured root must be a real directory,
+not a final-component symlink. Read-only mounts, write/flush/delete failures or
+insufficient space return 503; SQLite failures also return 503 with only
+`{"status":"not_ready"}`, without paths or exception details. A passing probe
+is a point-in-time check, not a reservation of future upload capacity. Existing
+evidence is never removed by the health check. The same helper is used by Cloud.
 Inspect `docker compose -p phishcase logs --tail=100`. HTTP application logs use
 route templates rather than URL queries; parser logs do not include message content.
 Dependency and process-manager logs can still use their own formats.

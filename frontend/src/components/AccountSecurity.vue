@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
+import { errorMessage } from '@/errors'
 import { t } from '@/i18n'
 
 const props = defineProps<{
@@ -25,7 +26,7 @@ async function run(action: () => Promise<void>) {
   try {
     await action()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('Erreur inattendue')
+    error.value = errorMessage(e)
   } finally {
     busy.value = false
   }

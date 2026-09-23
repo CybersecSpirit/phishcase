@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import 'vue-json-pretty/lib/styles.css'
-
 import { computed } from 'vue'
-import VueJsonPretty from 'vue-json-pretty'
 
 import { FetchError } from '@/api'
+import { errorMessage, RequestError } from '@/errors'
 import type { ErrorDataType } from '@/schemas'
 
 const props = defineProps({
@@ -29,6 +27,11 @@ const data = computed<ErrorDataType | undefined>(() => {
 const dispose = () => {
   emits('dispose')
 }
+const display = computed(() =>
+  props.error instanceof FetchError
+    ? errorMessage(new RequestError(data.value?.detail, props.error.status))
+    : errorMessage(props.error)
+)
 </script>
 
 <template>
@@ -40,10 +43,6 @@ const dispose = () => {
     >
       ✕
     </button>
-    <div v-if="typeof data?.detail === 'string'">
-      {{ data.detail }}
-    </div>
-    <p v-else>{{ error.message || error.name || 'Something went wrong' }}</p>
+    <p>{{ display }}</p>
   </div>
-  <VueJsonPretty class="mt-2" :data="data.detail" v-if="data?.detail" />
 </template>

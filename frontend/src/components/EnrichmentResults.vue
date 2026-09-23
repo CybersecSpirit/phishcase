@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 
 import PaginationControls from '@/components/PaginationControls.vue'
+import { errorMessage, providerHealthMessage } from '@/errors'
 import { t } from '@/i18n'
 import { defang, type Request } from '@/workspace'
 type Provider = {
@@ -139,7 +140,7 @@ async function run(action: () => Promise<unknown>) {
   try {
     await action()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('Erreur inattendue')
+    error.value = errorMessage(e)
   } finally {
     busy.value = false
   }
@@ -229,11 +230,11 @@ async function poll(id: number) {
 }
 async function health(name: string) {
   await run(async () => {
-    const result = await props.request<{ status?: string; summary?: string }>(
+    const result = await props.request<{ status?: string; detail?: string; summary?: string }>(
       '/integrations/' + name + '/health',
       'POST'
     )
-    message.value = result.summary || result.status || t('Vérification terminée')
+    message.value = providerHealthMessage(result)
     await load()
   })
 }
@@ -309,7 +310,7 @@ watch(provider, () => {
               }}
             </dt>
             <dd v-if="item.last_healthcheck.detail || item.last_healthcheck.summary">
-              {{ item.last_healthcheck.detail || item.last_healthcheck.summary }}
+              {{ providerHealthMessage(item.last_healthcheck) }}
             </dd>
           </dl>
           <p v-else class="small muted">{{ t('Aucun contrôle enregistré.') }}</p>
@@ -429,7 +430,16 @@ watch(provider, () => {
         <article v-for="item in items" :key="item.id" class="note">
           <strong>{{ item.provider }} · {{ item.action }} · {{ item.status }}</strong>
           <p class="hash">{{ defang(item.target.value) }}</p>
-          <p>{{ item.summary }}</p>
+          <p>
+            {{
+              ['error', 'failed', 'unavailable'].includes(item.status)
+                ? errorMessage(
+                    item.summary,
+                    item.metadata?.error_code || item.metadata?.reason_code
+                  )
+                : item.summary
+            }}
+          </p>
           <dl>
             <dt>{{ t('Malveillants') }}</dt>
             <dd>{{ item.malicious ?? '—' }}</dd>

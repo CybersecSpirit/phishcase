@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted,ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
+import { errorMessage } from '@/errors'
 import { t } from '@/i18n'
 
 type Assessment = { level: string; label: string; explanation: string; missing_engines: string[] }
@@ -11,6 +12,7 @@ type Result = {
   filename: string
   status: string
   error?: string
+  error_code?: string
   assessment?: Assessment
 }
 type Item = {
@@ -74,11 +76,11 @@ async function receive(files: File[]) {
         item.state = ['queued', 'running', 'completed', 'failed'].includes(r.status)
           ? (r.status as Item['state'])
           : 'queued'
-        item.error = r.error
+        item.error = r.error ? errorMessage(r.error, r.error_code) : undefined
         emit('completed')
       } catch (e) {
         item.state = 'failed'
-        item.error = e instanceof Error ? e.message : t('Échec de l’envoi')
+        item.error = errorMessage(e)
       }
     }
   } finally {
@@ -110,7 +112,7 @@ async function poll() {
           const result = await props.getAnalysis(item.result!.id)
           item.result = result
           item.state = result.status as Item['state']
-          item.error = result.error
+          item.error = result.error ? errorMessage(result.error, result.error_code) : undefined
           if (result.status === 'completed' || result.status === 'failed') emit('completed')
         } catch {
           /* transient network errors do not mark server jobs failed */

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
+import { errorMessage } from '@/errors'
 import { t } from '@/i18n'
 import router from '@/router'
 import { defang, emptyPage, eventMessages, type Page, pageQuery, type Request } from '@/workspace'
@@ -39,7 +40,7 @@ async function run(action: () => Promise<unknown>) {
   try {
     await action()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('Erreur inattendue')
+    error.value = errorMessage(e)
   } finally {
     busy.value = false
   }

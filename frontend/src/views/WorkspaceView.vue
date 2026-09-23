@@ -9,6 +9,7 @@ import EnrichmentResults from '@/components/EnrichmentResults.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import InvestigationContext from '@/components/InvestigationContext.vue'
 import PaginationControls from '@/components/PaginationControls.vue'
+import { errorMessage, RequestError } from '@/errors'
 import { locale, setLocale, setLocaleUser, t } from '@/i18n'
 import router from '@/router'
 import { defang, emptyPage, eventMessages, type Page, pageQuery } from '@/workspace'
@@ -65,6 +66,7 @@ type Analysis = {
   subject: string
   status: string
   error?: string
+  error_code?: string
   sha256: string
   created_at: string
   result?: Record<string, unknown>
@@ -238,11 +240,7 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
       mfaRequired.value = false
     }
     const payload = await response.json().catch(() => ({}))
-    throw new Error(
-      typeof payload.detail === 'string'
-        ? t(payload.detail)
-        : t('Requête refusée ({status})', { status: response.status })
-    )
+    throw new RequestError(payload?.detail, response.status, payload?.code)
   }
   return response.json()
 }
@@ -252,7 +250,7 @@ async function act(fn: () => Promise<void>) {
   try {
     await fn()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('Erreur inattendue')
+    error.value = errorMessage(e)
   } finally {
     busy.value = false
   }
@@ -511,9 +509,9 @@ async function upload(event: Event) {
     const result = await api<Analysis>('/cases/' + caseId + '/analyses', 'POST', form)
     await refresh()
     await openReport(result.id)
-    if (result.status === 'failed') error.value = result.error || t('Analyse échouée')
+    if (result.status === 'failed') error.value = errorMessage(result.error, result.error_code)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : t('Échec de l’envoi')
+    error.value = errorMessage(e)
   } finally {
     uploading.value = false
     input.value = ''
@@ -850,7 +848,9 @@ onUnmounted(() => {
               <span class="badge" :data-state="report.status">{{ labels[report.status] }}</span>
             </p>
             <p class="small muted hash">SHA-256 · {{ report.sha256 }}</p>
-            <p v-if="report.error" class="error">{{ report.error }}</p>
+            <p v-if="report.error" class="error">
+              {{ errorMessage(report.error, report.error_code) }}
+            </p>
             <button
               v-if="writer && report.status === 'failed'"
               class="secondary"

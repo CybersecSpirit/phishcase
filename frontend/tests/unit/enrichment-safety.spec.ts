@@ -40,6 +40,7 @@ describe('safe investigation surfaces', () => {
     })
     await flushPromises()
     expect(wrapper.text()).toContain('Last error')
+    expect(wrapper.text()).not.toContain('<img src=')
     expect(wrapper.text()).toContain('2026-09-23T12:00:00Z')
     expect(wrapper.text()).not.toContain('deployment environment')
     expect(wrapper.get('a').attributes('href')).toBe('/account#integrations')

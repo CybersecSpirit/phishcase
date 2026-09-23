@@ -16,6 +16,7 @@ from backend import settings
 from backend.investigation.api import router as investigation_router
 from backend.investigation.evidence import storage
 from backend.investigation.http_security import SecurityMiddleware
+from backend.investigation.readiness import storage_ready
 from backend.investigation.store import db, initialize
 
 
@@ -122,7 +123,7 @@ def create_app():
                     "SELECT max(seen) FROM worker_heartbeats"
                 ).fetchone()[0]
             root = storage().root
-            healthy = os.access(root, os.W_OK) and bool(
+            healthy = storage_ready(root) and bool(
                 recent and recent > time.time() - 300
             )
         except Exception:

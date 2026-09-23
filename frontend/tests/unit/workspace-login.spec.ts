@@ -106,7 +106,7 @@ describe('MFA login', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(wrapper.find('input[type=password]').exists()).toBe(true)
-    expect(wrapper.get('[role=alert]').text()).toBe('Vérification expirée')
+    expect(wrapper.get('[role=alert]').text()).toBe('Vérification expirée (HTTP 401)')
     expect(wrapper.find('.workspace').exists()).toBe(false)
     wrapper.unmount()
   })
