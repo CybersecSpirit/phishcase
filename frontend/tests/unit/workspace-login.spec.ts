@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { setLocale } from '@/i18n'
 import WorkspaceView from '@/views/WorkspaceView.vue'
 
 function reply(body: unknown, status = 200) {
@@ -9,7 +10,47 @@ function reply(body: unknown, status = 200) {
 
 afterEach(() => vi.unstubAllGlobals())
 
+beforeEach(() => {
+  localStorage.setItem('phishcase.locale.1', 'fr')
+  setLocale('fr')
+})
+
 describe('MFA login', () => {
+  it('accepts a separate identity response and only displays internal extension links', async () => {
+    let authenticated = false
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/config'))
+        return reply({
+          auth_links: [
+            { label: 'Créer un compte', url: '/signup' },
+            { label: 'Unsafe', url: '//example.org' },
+            { label: 'Unsafe newline', url: '/\n/example.org' }
+          ],
+          navigation: [{ label: 'Compte Cloud', url: '/account' }],
+          manage_users_url: '/account#members'
+        })
+      if (url.endsWith('/auth/login')) {
+        authenticated = true
+        return reply({ authenticated: true })
+      }
+      if (url.endsWith('/auth/me'))
+        return authenticated ? reply({ id: 1, username: 'admin', role: 'admin' }) : reply({}, 401)
+      if (url.endsWith('/auth/preferences')) return reply({ locale: 'fr' })
+      return reply([])
+    })
+    vi.stubGlobal('fetch', fetch)
+    const wrapper = mount(WorkspaceView, { global: { stubs: { AnalysisIntake: true } } })
+    await flushPromises()
+    expect(wrapper.find('a[href="/signup"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('Unsafe')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('.workspace').exists()).toBe(true)
+    expect(wrapper.find('a[href="/account"]').exists()).toBe(true)
+    expect(wrapper.findAll('button').some((button) => button.text() === 'Comptes')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('does not load workspace data until the second factor is accepted', async () => {
     const fetch = vi.fn(async (url: string) => {
       if (url.endsWith('/auth/me')) return reply({ detail: 'Authentification requise' }, 401)

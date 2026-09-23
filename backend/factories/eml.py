@@ -7,6 +7,7 @@ from eml_parser import EmlParser
 from ioc_finder import parse_domain_names, parse_email_addresses, parse_ipv4_addresses
 
 from backend import schemas
+from backend.investigation.parser_limits import validate_message
 from backend.outlookmsgfile_wrapper import Message
 from backend.utils import parse_urls_from_body
 from backend.validator import is_msg_file
@@ -104,7 +105,7 @@ def _normalize_received(received: list[dict]) -> list[dict]:
         ):
             continue
 
-        delay = (optional_datetime - optional_base_datetime).seconds
+        delay = int((optional_datetime - optional_base_datetime).total_seconds())
         r["delay"] = delay
         optional_base_datetime = optional_datetime
 
@@ -170,6 +171,7 @@ def transform(parsed: dict) -> schemas.Eml:
 class EmlFactory(AbstractFactory):
     def call(self, data: bytes) -> schemas.Eml:
         eml = to_eml(data)
+        validate_message(eml)
         parsed = parse(eml)
         parsed = normalize_header(parsed)
         parsed = normalize_attachments(parsed)

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import unittest
@@ -25,6 +26,8 @@ class WorkspaceTests(unittest.TestCase):
             {
                 "INVESTIGATION_DB": str(Path(self.temp.name) / "test.db"),
                 "COOKIE_SECURE": "false",
+                "JOB_MAX_ATTEMPTS": "1",
+                "CONNECTIVITY_MODE": "offline",
             },
         )
         self.env.start()
@@ -43,6 +46,17 @@ class WorkspaceTests(unittest.TestCase):
         return (client or self.client).post(
             "/api/workspace/auth/login", json={"username": name, "password": password}
         )
+
+    def upload(self, path, **kwargs):
+        from backend.investigation.analyzer_task import analyze
+        from backend.investigation.jobs import run_once
+
+        response = self.client.post(path, **kwargs)
+        if response.status_code != 202:
+            return response
+        self.assertEqual(response.json()["status"], "queued")
+        run_once(lambda raw: asyncio.run(analyze(raw)))
+        return self.client.get("/api/workspace/analyses/" + response.json()["id"])
 
     def case(self, title="Suspicious invoice"):
         r = self.client.post("/api/workspace/cases", json={"title": title})
@@ -159,11 +173,11 @@ class WorkspaceTests(unittest.TestCase):
     def test_real_email_pipeline_iocs_and_cross_case_correlation(self):
         for title in ("Campaign A", "Campaign B"):
             case_id = self.case(title)
-            r = self.client.post(
+            r = self.upload(
                 f"/api/workspace/cases/{case_id}/analyses",
                 files={"file": ("sample.eml", EMAIL, "message/rfc822")},
             )
-            self.assertEqual(r.status_code, 201, r.text)
+            self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(r.json()["status"], "completed", r.text)
             self.assertEqual(
                 self.client.get(
@@ -202,8 +216,8 @@ class WorkspaceTests(unittest.TestCase):
         async def fail(*args, **kwargs):
             raise RuntimeError("do not disclose internal details")
 
-        with patch("backend.investigation.api._analyze", fail):
-            r = self.client.post(
+        with patch("backend.api.endpoints.analyze._analyze", fail):
+            r = self.upload(
                 f"/api/workspace/cases/{case_id}/analyses",
                 files={"file": ("bad.eml", EMAIL)},
             )
@@ -213,14 +227,14 @@ class WorkspaceTests(unittest.TestCase):
             self.client.get("/api/workspace/dashboard").json()["failed_analyses"], 1
         )
         self.assertEqual(
-            self.client.post(
+            self.upload(
                 f"/api/workspace/cases/{case_id}/analyses",
                 files={"file": ("empty.eml", b"")},
             ).status_code,
             422,
         )
         self.assertEqual(
-            self.client.post(
+            self.upload(
                 f"/api/workspace/cases/{case_id}/analyses",
                 files={"file": ("big.eml", b"x" * (20 * 1024 * 1024 + 1))},
             ).status_code,
@@ -228,10 +242,10 @@ class WorkspaceTests(unittest.TestCase):
         )
 
     def test_direct_upload_creates_named_case_and_keeps_original(self):
-        response = self.client.post(
+        response = self.upload(
             "/api/workspace/analyses", files={"file": ("invoice.eml", EMAIL)}
         )
-        self.assertEqual(response.status_code, 201, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
         analysis = response.json()
         self.assertEqual(analysis["status"], "completed")
         self.assertEqual(analysis["assessment"]["level"], "inconclusive")
@@ -261,9 +275,7 @@ class WorkspaceTests(unittest.TestCase):
             ("bad.exe", EMAIL, 422),
             ("big.eml", b"x" * (20 * 1024 * 1024 + 1), 413),
         ]:
-            r = self.client.post(
-                "/api/workspace/analyses", files={"file": (name, content)}
-            )
+            r = self.upload("/api/workspace/analyses", files={"file": (name, content)})
             self.assertEqual(r.status_code, expected)
         self.assertEqual(self.client.get("/api/workspace/cases").json(), [])
 
@@ -271,11 +283,11 @@ class WorkspaceTests(unittest.TestCase):
         async def fail(*args, **kwargs):
             raise RuntimeError("malformed")
 
-        with patch("backend.investigation.api._analyze", fail):
-            r = self.client.post(
+        with patch("backend.api.endpoints.analyze._analyze", fail):
+            r = self.upload(
                 "/api/workspace/analyses", files={"file": ("broken.msg", EMAIL)}
             )
-        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "failed")
         case = self.client.get(
             "/api/workspace/cases/" + str(r.json()["case_id"])
@@ -290,7 +302,7 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_repeated_uploads_have_distinct_cases(self):
         results = [
-            self.client.post(
+            self.upload(
                 "/api/workspace/analyses", files={"file": ("same.eml", EMAIL)}
             ).json()
             for _ in range(2)
@@ -300,10 +312,8 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_msg_direct_upload(self):
         raw = Path("tests/fixtures/outer.msg").read_bytes()
-        r = self.client.post(
-            "/api/workspace/analyses", files={"file": ("outer.MSG", raw)}
-        )
-        self.assertEqual(r.status_code, 201)
+        r = self.upload("/api/workspace/analyses", files={"file": ("outer.MSG", raw)})
+        self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "completed", r.text[:800])
         self.assertEqual(
             self.client.get(
@@ -322,11 +332,11 @@ class WorkspaceTests(unittest.TestCase):
         message.add_attachment(
             payload, maintype="text", subtype="html", filename="../rapport.html"
         )
-        r = self.client.post(
+        r = self.upload(
             "/api/workspace/analyses",
             files={"file": ("attachment.eml", message.as_bytes())},
         )
-        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.status_code, 200)
         analysis = r.json()
         self.assertEqual(analysis["status"], "completed", r.text)
         self.assertEqual(len(self.client.get("/api/workspace/cases").json()), 1)
@@ -365,24 +375,21 @@ class WorkspaceTests(unittest.TestCase):
         )
         self.assertEqual(self.client.get("/api/workspace/cases").json(), [])
 
-    def test_legacy_routes_require_authentication(self):
+    def test_legacy_routes_are_unmounted_and_v1_requires_authentication(self):
         from backend.main import create_app
 
         client = TestClient(create_app(), headers=HEADERS)
-        self.assertEqual(client.get("/api/cache/").status_code, 401)
+        self.assertEqual(client.get("/api/cache/").status_code, 404)
+        self.assertIn(
+            client.post("/api/analyze/", json={"file": EMAIL.decode()}).status_code,
+            (404, 405),
+        )
+        self.assertEqual(client.get("/api/v1/analyses").status_code, 401)
         self.assertEqual(
-            client.post("/api/analyze/", json={"file": EMAIL.decode()}).status_code, 401
-        )
-        self.client.post(
-            "/api/workspace/users",
-            json={"username": "viewer", "password": PASSWORD, "role": "viewer"},
-        )
-        client.post(
-            "/api/workspace/auth/login",
-            json={"username": "viewer", "password": PASSWORD},
-        )
-        self.assertEqual(
-            client.post("/api/analyze/", json={"file": EMAIL.decode()}).status_code, 403
+            client.post(
+                "/api/v1/analyses", files={"file": ("test.eml", EMAIL)}
+            ).status_code,
+            401,
         )
 
     def test_login_throttling(self):

@@ -40,7 +40,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: |
-            latest=true
+            latest=${{ !github.event.release.prerelease }}
             suffix=${{ matrix.suffix }},onlatest=true
           tags: |
             type=ref,event=tag
@@ -52,5 +52,4 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
 

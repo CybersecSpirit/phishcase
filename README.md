@@ -4,11 +4,20 @@
 
 PhishCase est un espace d’investigation des emails pour une équipe de sécurité. Il accepte les fichiers **EML et MSG**, réutilise le moteur d’analyse de [eml_analyzer](https://github.com/ninoseki/eml_analyzer) et ajoute des comptes, des dossiers persistants, un tableau de bord, un historique et la corrélation des indicateurs de compromission (IOC).
 
-L’interface est en français. Le projet est auto-hébergé et livré avec Docker Compose.
+L’interface est disponible en français et en anglais, avec une préférence conservée par utilisateur. Le projet est auto-hébergé et livré avec Docker Compose.
 
 ## Community et Enterprise
 
 Ce dépôt est la **Community Edition publique et MIT** de PhishCase. Il reste utilisable seul, sans dépendance commerciale. Les fonctions SaaS/Enterprise sont développées séparément dans un dépôt privé qui référence ce cœur. Voir [l'architecture open-core](docs/OPEN_CORE.md) pour les périmètres, la relation entre dépôts et les règles de contribution.
+
+## Documentation
+
+- [Installation and operation (EN)](docs/OPERATIONS.md) — Docker, worker, migrations, backup and restore.
+- [API et ingestion / API and ingestion](docs/API.md).
+- [Connectivité, VirusTotal et urlscan](docs/ENRICHMENTS.md).
+- [Architecture](docs/ARCHITECTURE.md), [sécurité](SECURITY.md), [contribution](CONTRIBUTING.md), [roadmap](ROADMAP.md), [validation](docs/VALIDATION.md).
+
+Les campagnes regroupent plusieurs dossiers ; la recherche retrouve sujets, indicateurs et métadonnées. La classification de l’analyste, sa confiance et sa justification sont historisées séparément du résultat automatique ; une réouverture conserve les décisions précédentes.
 
 ## Parcours d’utilisation
 
@@ -19,7 +28,7 @@ Ce dépôt est la **Community Edition publique et MIT** de PhishCase. Il reste u
 
 Aucun dossier préalable n’est requis. Chaque email reçoit un dossier nommé **`date UTC d’analyse · objet du message`**, par exemple `2026-09-18 · Facture à vérifier`. Si l’objet n’est pas disponible, le nom du fichier est utilisé. Deux emails au même nom ont des dossiers distincts. Les dossiers peuvent ensuite être renommés, assignés, annotés ou complétés avec d’autres emails.
 
-L’envoi accepte jusqu’à **20 fichiers par sélection**, de **20 Mo maximum chacun**. Les fichiers sont traités l’un après l’autre : gardez l’onglet ouvert pendant l’envoi. Après réception, les résultats sont persistants. Un email reçu dont l’analyse échoue reste dans son dossier avec son original et son état d’échec.
+L’envoi accepte jusqu’à **20 fichiers par sélection**, de **20 Mo maximum chacun**. L’envoi reçoit un identifiant de travail persistant (HTTP 202). Gardez l’onglet ouvert pendant le transfert ; après réception, le worker poursuit l’analyse même si le navigateur est fermé. Les listes sont paginées, sans plafond historique de 500 éléments. Un email reçu dont l’analyse échoue reste dans son dossier avec son original et son état d’échec.
 
 ## Ce que contient PhishCase
 
@@ -51,9 +60,9 @@ Les IOC peuvent être qualifiés manuellement : **à qualifier**, **bénin**, **
 Les pièces jointes restent rattachées à l’analyse de leur email, **dans le même dossier**. Elles ne créent pas de dossiers séparés.
 
 - L’original EML/MSG et son SHA-256 sont conservés.
-- Les octets des PJ sont conservés dans le rapport persistant, avec leur nom, type, taille et empreintes.
+- Les octets des PJ et de l’original sont conservés dans EvidenceStorage, séparément du JSON, avec contrôle SHA-256 à la lecture et des clés de stockage opaques.
 - Le moteur effectue des contrôles statiques Office/OLE, notamment sur les macros et certaines structures suspectes. Une consultation de réputation par empreinte est possible si VirusTotal est configuré.
-- Le fichier original et chaque PJ sont téléchargeables individuellement ; le rapport est exportable en JSON.
+- Le fichier original et chaque PJ sont téléchargeables individuellement ; le rapport est exportable en JSON, en HTML lisible et en paquet de preuves. Les PJ du paquet sont sélectionnées explicitement.
 - Le HTML de l’email est affiché comme texte inerte. Les ressources et liens du message ne sont pas chargés automatiquement par l’interface.
 
 **Aucune pièce jointe n’est exécutée en sandbox.** Les contrôles actuels ne constituent pas une analyse dynamique ni une couverture antivirus exhaustive de tous les formats.
@@ -64,7 +73,7 @@ Les pièces jointes restent rattachées à l’analyse de leur email, **dans le 
 
 - Git.
 - Docker avec Docker Compose.
-- Un accès Internet pour télécharger les images, dépendances et règles de SpamAssassin lors de la construction.
+- Un accès Internet pour télécharger les images et dépendances lors de la construction. Le moteur local utilise les règles fournies par Debian, sans téléchargement de règles non signées.
 
 Python et Node.js sont installés dans les étapes Docker ; aucune ancienne image `eml_analyzer` ni installation Python locale n’est nécessaire.
 
@@ -74,7 +83,7 @@ cd phishcase
 docker compose -p phishcase -f compose.phishcase.yml up -d --build
 ```
 
-Compose construit `phishcase:local` à partir des sources, puis démarre l’API, l’interface et SpamAssassin. Le premier build peut prendre plusieurs minutes.
+Compose construit `phishcase:local` à partir des sources, puis démarre l’API, l’interface, le worker persistant et SpamAssassin. Le premier build peut prendre plusieurs minutes.
 
 Vérifier le service :
 
@@ -180,7 +189,7 @@ Les variables backend supplémentaires doivent être transmises au conteneur dan
 
 Le Compose fourni publie uniquement sur **`127.0.0.1`**. Pour un accès partagé au travail, prévoir un reverse proxy HTTPS et `COOKIE_SECURE=true`, avec les règles réseau appropriées. Il n’y a pas de certificat ni d’exposition réseau d’équipe configurés automatiquement.
 
-Les services de réputation peuvent recevoir les indicateurs consultés si leurs clés sont configurées. La consultation VirusTotal des PJ utilise leurs empreintes ; l’interface PhishCase ne soumet pas automatiquement les fichiers à VirusTotal. L’API historique conserve un endpoint de soumission explicite, protégé par les droits analyste. Consultez [la documentation du moteur amont](docs/UPSTREAM.md) pour les autres paramètres.
+Les services de réputation peuvent recevoir les indicateurs consultés si leurs clés sont configurées. La consultation VirusTotal des PJ utilise leurs empreintes ; l’interface PhishCase ne soumet pas automatiquement les fichiers à VirusTotal. Les anciennes routes synchrones ne sont plus montées. Toute soumission exige le mode connected, une autorisation du fournisseur pour ce type de donnée et une action explicite de l’analyste. Consultez [la documentation du moteur amont](docs/UPSTREAM.md) pour les autres paramètres.
 
 ## Architecture et développement
 
@@ -188,7 +197,7 @@ Les services de réputation peuvent recevoir les indicateurs consultés si leurs
 - **Backend** : FastAPI, Python 3.14 et moteur `eml_analyzer`.
 - **Stockage** : SQLite avec clés étrangères et mode WAL ; Redis n’est pas nécessaire au stockage des dossiers.
 - **Analyse** : parsing EML/MSG, extraction des IOC, SpamAssassin, contrôles Office/OLE, DKIM et enrichissements configurés.
-- **Déploiement fourni** : un conteneur avec un processus API et SpamAssassin, plus un volume persistant.
+- **Déploiement fourni** : un conteneur avec API, worker et SpamAssassin local, plus un volume persistant contenant SQLite et les preuves.
 
 | Chemin | Contenu |
 | --- | --- |
@@ -215,13 +224,13 @@ Les tests PhishCase utilisent des bases temporaires et vérifient le MFA (activa
 
 ## Périmètre actuel
 
-PhishCase est une première version d’investigation mono-équipe. Les limites actuelles sont :
+PhishCase est une première version d’investigation mono-équipe. Cette branche prépare une release candidate ; les limites actuelles sont :
 
-- Traitement dans la requête HTTP avec une échéance de 180 secondes, sans file de travaux durable. Les analyses interrompues au redémarrage sont marquées en échec ; réimporter leur original pour les relancer.
+- File persistante avec réservation atomique, reprise après expiration du bail, trois tentatives par défaut et relance manuelle. Le parseur tourne dans un processus isolé limité en temps/mémoire ; les originaux restent conservés après un échec.
 - Déploiement prévu pour un seul processus API ; pas de répartition sur plusieurs workers.
 - Pas d’isolation multi-organisation ou par dossier, de SSO, de passkeys/WebAuthn, de chiffrement applicatif des preuves ou de politique de rétention automatique.
 - Pas de sandbox, d’export STIX ou de verdict garantissant qu’un fichier est sûr.
-- Listes plafonnées à 500 dossiers/analyses, 1 000 IOC et 200 événements par dossier ; pagination complète à ajouter.
+- Pagination complète des dossiers, analyses, IOC, événements, campagnes et résultats de recherche. Les anciennes requêtes sans paramètre page restent compatibles mais une pagination est recommandée aux clients API.
 
 Le code et les dépendances doivent être évalués pour les exigences de votre environnement avant une exposition en production. Les vérifications réalisées sont décrites dans [docs/VALIDATION.md](docs/VALIDATION.md).
 

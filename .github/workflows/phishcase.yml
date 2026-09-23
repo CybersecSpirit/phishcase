@@ -1,7 +1,7 @@
 name: PhishCase checks
 on:
   push:
-    branches: [master, 'feature/investigation-platform']
+    branches: [master, 'feature/investigation-platform', 'feature/release-candidate-v1']
   pull_request:
     paths:
       - 'backend/investigation/**'
@@ -32,4 +32,7 @@ jobs:
       - run: npx vitest run
         working-directory: frontend
       - run: uv run ruff check backend/investigation tests_workspace
-      - run: uv run python -m unittest discover -s tests_workspace -v
+      - run: uv run python -m pytest tests_workspace -q
+      - run: docker compose -p phishcase-ci build
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: frontend

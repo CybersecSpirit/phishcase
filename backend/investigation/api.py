@@ -1,18 +1,12 @@
-import asyncio
 import base64
 import hashlib
 import json
 import sqlite3
-from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import quote
-from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field
-
-from backend import dependencies
-from backend.api.endpoints.analyze import _analyze
 
 from .assessment import summarize
 from .auth import (
@@ -25,12 +19,21 @@ from .auth import (
     secure_cookie,
     throttle,
 )
+from .enrichment_api import router as enrichment_router
+from .exports import router as exports_router
+from .investigations import router as investigations_router
 from .mfa import begin_challenge
 from .mfa import router as mfa_router
 from .store import audit, db, password_hash, password_matches
+from .tokens import router as tokens_router
 
 router = APIRouter()
 router.include_router(mfa_router)
+
+router.include_router(tokens_router)
+router.include_router(exports_router)
+router.include_router(enrichment_router)
+router.include_router(investigations_router)
 
 
 class Login(BaseModel):
@@ -180,6 +183,12 @@ def update_user(user_id: int, data: UserUpdate, user: Admin):
     return {"ok": True}
 
 
+@router.get("/config")
+def workspace_configuration():
+    """Public presentation extension point; commercial adapters may replace it."""
+    return {"navigation": [], "auth_links": [], "manage_users_url": None}
+
+
 @router.get("/dashboard")
 def dashboard(user: User):
     with db() as conn:
@@ -206,22 +215,6 @@ def dashboard(user: User):
                 )
             ],
         }
-
-
-@router.get("/cases")
-def cases(user: User, q: str = "", status: str = ""):
-    with db() as conn:
-        return [
-            dict(r)
-            for r in conn.execute(
-                """SELECT c.*,u.username AS assignee,
-            (SELECT count(*) FROM analyses a WHERE a.case_id=c.id) AS analysis_count
-            FROM cases c LEFT JOIN users u ON u.id=c.assignee_id
-            WHERE (c.title LIKE ? OR c.description LIKE ?) AND (?='' OR c.status=?)
-            ORDER BY c.updated_at DESC,c.id DESC LIMIT 500""",
-                (f"%{q}%", f"%{q}%", status, status),
-            )
-        ]
 
 
 @router.post("/cases", status_code=201)
@@ -297,18 +290,6 @@ def add_note(case_id: int, data: Note, user: Writer):
     return {"ok": True}
 
 
-@router.get("/analyses")
-def analyses(user: User, case_id: int | None = None):
-    with db() as conn:
-        return [
-            dict(r)
-            for r in conn.execute(
-                "SELECT id,case_id,filename,sha256,status,subject,error,created_at,finished_at FROM analyses WHERE (? IS NULL OR case_id=?) ORDER BY created_at DESC LIMIT 500",
-                (case_id, case_id),
-            )
-        ]
-
-
 @router.get("/analyses/{analysis_id}")
 def get_analysis(analysis_id: str, user: User):
     with db() as conn:
@@ -319,8 +300,11 @@ def get_analysis(analysis_id: str, user: User):
             raise HTTPException(404, "Analyse introuvable")
         result = dict(row)
         result.pop("source", None)
+        result.pop("source_ref", None)
         result["result"] = json.loads(result["result"]) if result["result"] else None
         if result["result"] is not None:
+            for item in result["result"].get("eml", {}).get("attachments", []):
+                item.pop("raw", None)
             result["assessment"] = result["result"].get("assessment") or summarize(
                 result["result"]
             )
@@ -376,196 +360,63 @@ async def read_email(file: UploadFile) -> tuple[bytes, str]:
     return raw, filename
 
 
-@router.post("/analyses", status_code=201)
-async def direct_upload(
-    file: UploadFile,
-    user: Writer,
-    spam_assassin: dependencies.OptionalSpamAssassin,
-    optional_email_rep: dependencies.OptionalEmailRep,
-    optional_vt: dependencies.OptionalVirusTotal,
-    optional_urlscan: dependencies.OptionalUrlScan,
-):
+@router.post("/analyses", status_code=202)
+async def direct_upload(file: UploadFile, request: Request, user: Writer):
+    return await queue_upload(file, request, user)
+
+
+@router.post("/cases/{case_id}/analyses", status_code=202)
+async def upload(case_id: int, file: UploadFile, request: Request, user: Writer):
+    return await queue_upload(file, request, user, case_id)
+
+
+async def queue_upload(file, request, user, case_id=None):
+    from .auth import throttle_user
+    from .jobs import enqueue
+
+    throttle_user(user["id"], "uploads", 20)
     raw, filename = await read_email(file)
-    return await analyze_and_store(
-        None,
-        raw,
-        filename,
-        user,
-        spam_assassin,
-        optional_email_rep,
-        optional_vt,
-        optional_urlscan,
-    )
-
-
-@router.post("/cases/{case_id}/analyses", status_code=201)
-async def upload(
-    case_id: int,
-    file: UploadFile,
-    user: Writer,
-    spam_assassin: dependencies.OptionalSpamAssassin,
-    optional_email_rep: dependencies.OptionalEmailRep,
-    optional_vt: dependencies.OptionalVirusTotal,
-    optional_urlscan: dependencies.OptionalUrlScan,
-):
-    with db() as conn:
-        case_exists(conn, case_id)
-    raw, filename = await read_email(file)
-    return await analyze_and_store(
-        case_id,
-        raw,
-        filename,
-        user,
-        spam_assassin,
-        optional_email_rep,
-        optional_vt,
-        optional_urlscan,
-    )
-
-
-def expected_engines(document, optional_email_rep, optional_vt, optional_urlscan):
-    expected = ["SpamAssassin", "oleid"]
-    if any(
-        k.lower() == "dkim-signature"
-        for k in document["eml"]["header"].get("header", {})
-    ):
-        expected.append("DKIM")
-    if optional_email_rep is not None and document["eml"]["header"].get("from_"):
-        expected.append("EmailRep")
-    if optional_vt is not None:
-        expected.append("VirusTotal")
-    if optional_urlscan is not None:
-        expected.append("urlscan.io")
-    return expected
-
-
-async def analyze_and_store(
-    case_id,
-    raw,
-    filename,
-    user,
-    spam_assassin,
-    optional_email_rep,
-    optional_vt,
-    optional_urlscan,
-):
-    analysis_id = str(uuid4())
-    auto_title = None
-    date_prefix = datetime.now(UTC).strftime("%Y-%m-%d")
-    with db() as conn:
-        if case_id is None:
-            auto_title = f"{date_prefix} · {filename}"[:200]
-            cursor = conn.execute(
-                "INSERT INTO cases(title,created_by,assignee_id) VALUES (?,?,?)",
-                (auto_title, user["id"], user["id"]),
-            )
-            case_id = cursor.lastrowid
-            audit(conn, user["id"], "case.created", case_id, auto_title)
-        else:
-            case_exists(conn, case_id)
-        conn.execute(
-            "INSERT INTO analyses(id,case_id,filename,sha256,status,created_by,source) VALUES (?,?,?,?,'running',?,?)",
-            (
-                analysis_id,
-                case_id,
-                filename,
-                hashlib.sha256(raw).hexdigest(),
-                user["id"],
-                raw,
-            ),
-        )
-        audit(conn, user["id"], "analysis.started", case_id, analysis_id)
     try:
-        result = await asyncio.wait_for(
-            _analyze(
-                raw,
-                optional_spam_assassin=spam_assassin,
-                optional_email_rep=optional_email_rep,
-                optional_vt=optional_vt,
-                optional_urlscan=optional_urlscan,
-            ),
-            timeout=180,
+        analysis_id = enqueue(
+            raw,
+            filename,
+            user,
+            case_id,
+            ingestion_source="api" if user.get("api_token") else "upload",
+            idempotency_key=request.headers.get("Idempotency-Key"),
         )
-        document = result.model_dump(mode="json", by_alias=False)
-        document["assessment"] = summarize(
-            document,
-            expected=expected_engines(
-                document, optional_email_rep, optional_vt, optional_urlscan
-            ),
-        )
-        with db() as conn:
-            if auto_title is not None:
-                subject = (
-                    " ".join(
-                        (document["eml"]["header"].get("subject") or filename).split()
-                    )
-                    or filename
-                )
-                title = f"{date_prefix} · {subject}"[:200]
-                cursor = conn.execute(
-                    "UPDATE cases SET title=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND title=?",
-                    (title, case_id, auto_title),
-                )
-                if cursor.rowcount and title != auto_title:
-                    audit(conn, user["id"], "case.named", case_id, title)
-            conn.execute(
-                "UPDATE analyses SET status='completed',subject=?,result=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",
-                (
-                    document["eml"]["header"]["subject"],
-                    json.dumps(document),
-                    analysis_id,
-                ),
-            )
-            for kind, value in extract_iocs(document):
-                conn.execute(
-                    "INSERT OR IGNORE INTO iocs(kind,value) VALUES (?,?)", (kind, value)
-                )
-                conn.execute(
-                    "INSERT OR IGNORE INTO analysis_iocs SELECT ?,id FROM iocs WHERE kind=? AND value=?",
-                    (analysis_id, kind, value),
-                )
-            audit(conn, user["id"], "analysis.completed", case_id, analysis_id)
-    except (Exception, asyncio.CancelledError) as exc:
-        with db() as conn:
-            conn.execute(
-                "UPDATE analyses SET status='failed',error=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",
-                (
-                    "Analyse interrompue ou impossible ; vérifier le format et les services configurés.",
-                    analysis_id,
-                ),
-            )
-            audit(conn, user["id"], "analysis.failed", case_id, analysis_id)
-        if isinstance(exc, asyncio.CancelledError):
-            raise
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(404, "Dossier introuvable") from exc
     return get_analysis(analysis_id, user)
 
 
-@router.get("/iocs")
-def iocs(user: User, q: str = "", case_id: int | None = None):
-    with db() as conn:
-        return [
-            dict(r)
-            for r in conn.execute(
-                """SELECT i.*,count(DISTINCT ai.analysis_id) AS analysis_count,
-            count(DISTINCT a.case_id) AS case_count FROM iocs i
-            JOIN analysis_iocs ai ON ai.ioc_id=i.id JOIN analyses a ON a.id=ai.analysis_id
-            WHERE i.value LIKE ? AND (? IS NULL OR a.case_id=?) GROUP BY i.id ORDER BY i.id DESC LIMIT 1000""",
-                (f"%{q}%", case_id, case_id),
-            )
-        ]
+@router.post("/analyses/{analysis_id}/retry", status_code=202)
+def retry_analysis(analysis_id: str, user: Writer):
+    import time
 
-
-@router.get("/iocs/{ioc_id}/occurrences")
-def occurrences(ioc_id: int, user: User):
     with db() as conn:
-        return [
-            dict(r)
-            for r in conn.execute(
-                """SELECT a.id,a.filename,a.case_id,c.title FROM analyses a
-            JOIN analysis_iocs ai ON ai.analysis_id=a.id JOIN cases c ON c.id=a.case_id WHERE ai.ioc_id=?""",
-                (ioc_id,),
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM analyses WHERE id=?", (analysis_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Analyse introuvable")
+        if row["status"] != "failed":
+            raise HTTPException(
+                409, "Seules les analyses échouées peuvent être relancées"
             )
-        ]
+        conn.execute(
+            "UPDATE jobs SET state='queued',attempts=0,error=NULL,available_at=?,lease_token=NULL,lease_until=NULL WHERE analysis_id=?",
+            (time.time(), analysis_id),
+        )
+        conn.execute(
+            "UPDATE analyses SET status='queued',error=NULL,finished_at=NULL WHERE id=?",
+            (analysis_id,),
+        )
+        audit(conn, user["id"], "analysis.retried", row["case_id"], analysis_id)
+    return get_analysis(analysis_id, user)
 
 
 @router.put("/iocs/{ioc_id}")
@@ -582,35 +433,69 @@ def set_verdict(ioc_id: int, data: Verdict, user: Writer):
 
 @router.get("/analyses/{analysis_id}/source")
 def source(analysis_id: str, user: User):
+    from .evidence import original
+
     with db() as conn:
         row = conn.execute(
-            "SELECT source,filename FROM analyses WHERE id=?", (analysis_id,)
+            "SELECT filename FROM analyses WHERE id=?", (analysis_id,)
         ).fetchone()
-        if not row or row["source"] is None:
+        if not row:
             raise HTTPException(404, "Source indisponible")
-        suffix = ".msg" if row["filename"].lower().endswith(".msg") else ".eml"
-        return Response(
-            content=row["source"],
-            media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": f'attachment; filename="{analysis_id}{suffix}"',
-                "X-Content-Type-Options": "nosniff",
-            },
-        )
+        try:
+            content = original(conn, analysis_id)
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                409, "Preuve indisponible ou intégrité non vérifiée"
+            ) from exc
+    suffix = ".msg" if row["filename"].lower().endswith(".msg") else ".eml"
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{analysis_id}{suffix}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.get("/analyses/{analysis_id}/attachments/{attachment_index}")
 def attachment_source(analysis_id: str, attachment_index: int, user: User):
+    from .evidence import storage
+
     analysis = get_analysis(analysis_id, user)
     attachments = (analysis["result"] or {}).get("eml", {}).get("attachments", [])
     if attachment_index < 0 or attachment_index >= len(attachments):
         raise HTTPException(404, "Pièce jointe introuvable")
-    attachment = attachments[attachment_index]
-    data = base64.b64decode(attachment["raw"], validate=True)
-    # Force a download; never render email-provided HTML/SVG or executable content inline.
-    name = attachment.get("filename") or f"piece-jointe-{attachment_index + 1}"
-    name = name.replace("\\", "/").rsplit("/", 1)[-1]
-    name = "".join(c for c in name if c.isprintable())[:180] or "piece-jointe"
+    item = attachments[attachment_index]
+    with db() as conn:
+        stored = conn.execute(
+            "SELECT * FROM evidence_attachments WHERE analysis_id=? AND position=?",
+            (analysis_id, attachment_index),
+        ).fetchone()
+        if stored:
+            try:
+                data = storage().read(stored["storage_key"], stored["sha256"])
+            except (FileNotFoundError, ValueError) as exc:
+                raise HTTPException(
+                    409, "Preuve indisponible ou intégrité non vérifiée"
+                ) from exc
+        else:
+            row = conn.execute(
+                "SELECT result FROM analyses WHERE id=?", (analysis_id,)
+            ).fetchone()
+            data = base64.b64decode(
+                json.loads(row["result"])["eml"]["attachments"][attachment_index][
+                    "raw"
+                ],
+                validate=True,
+            )
+    name = (
+        (item.get("filename") or f"attachment-{attachment_index + 1}")
+        .replace(chr(92), "/")
+        .rsplit("/", 1)[-1]
+    )
+    name = "".join(c for c in name if c.isprintable())[:180] or "attachment"
     return Response(
         content=data,
         media_type="application/octet-stream",
@@ -618,5 +503,27 @@ def attachment_source(analysis_id: str, attachment_index: int, user: User):
             "Content-Disposition": f"attachment; filename=attachment-{attachment_index + 1}.bin; filename*=UTF-8''{quote(name, safe='')}",
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",
+            "Cache-Control": "no-store",
         },
     )
+
+
+class Preferences(BaseModel):
+    locale: Literal["fr", "en"]
+
+
+@router.get("/auth/preferences")
+def preferences(user: User):
+    with db() as conn:
+        return {
+            "locale": conn.execute(
+                "SELECT locale FROM users WHERE id=?", (user["id"],)
+            ).fetchone()["locale"]
+        }
+
+
+@router.put("/auth/preferences")
+def save_preferences(data: Preferences, user: User):
+    with db() as conn:
+        conn.execute("UPDATE users SET locale=? WHERE id=?", (data.locale, user["id"]))
+    return data

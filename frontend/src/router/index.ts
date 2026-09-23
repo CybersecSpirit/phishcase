@@ -1,31 +1,19 @@
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
-
-import Cache from '@/views/CacheView.vue'
-import Home from '@/views/HomeView.vue'
-import Lookup from '@/views/LookupView.vue'
-
-const routes: Array<RouteRecordRaw> = [
-  {
-    path: '/',
-    name: 'Home',
-    component: Home
-  },
-  {
-    path: '/lookup/:id',
-    name: 'Lookup',
-    component: Lookup,
-    props: true
-  },
-  {
-    path: '/cache',
-    name: 'Cache',
-    component: Cache
-  }
-]
-
-const router = createRouter({
-  history: createWebHashHistory(),
-  routes
-})
-
-export default router
+import { createRouter, createWebHistory } from 'vue-router'
+const Workspace = () => import('@/views/WorkspaceView.vue')
+export const workspaceRoutes = [
+  '/',
+  '/dashboard',
+  '/cases',
+  '/cases/:id',
+  '/analyses',
+  '/analyses/:id',
+  '/iocs',
+  '/iocs/:id',
+  '/campaigns',
+  '/campaigns/:id',
+  '/search',
+  '/integrations',
+  '/security',
+  '/users'
+].map((path) => ({ path, component: Workspace }))
+export default createRouter({ history: createWebHistory(), routes: workspaceRoutes })
