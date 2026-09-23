@@ -1,34 +1,3 @@
-services:
-  spamassassin:
-    image: instantlinux/spamassassin:4.0.1-5
-    platform: linux/x86_64
-    ports:
-      - ${SPAMASSASSIN_PORT:-7783}:783
-    restart: always
-
-  redis:
-    image: "redis/redis-stack:7.4.0-v8"
-    restart: always
-    ports:
-      - ${REDIS_PORT:-6379}:6379
-      - ${REDIS_INSIGHT_PORT:-8001}:8001
-    volumes:
-      - redis-data:/data
-
-  eml_analyzer:
-    build:
-      context: ./
-      dockerfile: app.Dockerfile
-    ports:
-      - ${PORT:-8000}:8000
-    environment:
-      - SPAMASSASSIN_HOST=spamassassin
-      - SPAMASSASSIN_PORT=${SPAMASSASSIN_PORT:-7783}
-      - REDIS_URL=redis://redis:${REDIS_PORT:-6379}
-    restart: always
-    depends_on:
-      - spamassassin
-      - redis
-
-volumes:
-  redis-data:
+# PhishCase Community: docker compose up -d --build
+include:
+  - compose.phishcase.yml

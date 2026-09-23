@@ -10,11 +10,23 @@ from .store import db
 
 
 def require_user(request: Request):
+    authorization = request.headers.get("authorization", "")
+    if authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+        with db() as conn:
+            user = conn.execute(
+                "SELECT u.id,u.username,u.role,u.active,(u.mfa_secret IS NOT NULL) AS mfa_enabled FROM api_tokens t JOIN users u ON u.id=t.user_id WHERE t.digest=? AND t.expires>? AND u.active=1",
+                (digest(token), time.time()),
+            ).fetchone()
+        if not user:
+            raise HTTPException(401, "Invalid or expired API token")
+        throttle_user(user["id"])
+        return {**dict(user), "api_token": True}
+
     # A custom header forces a CORS preflight for cross-origin writes. No CORS origins are enabled.
-    if (
-        request.method not in ("GET", "HEAD", "OPTIONS")
-        and request.headers.get("x-requested-with") != "EML-Investigation"
-    ):
+    if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get(
+        "x-requested-with"
+    ) not in {"EML-Investigation", "PhishCase"}:
         raise HTTPException(403, "En-tête de protection CSRF requis")
     token = request.cookies.get("eml_session", "")
     with db() as conn:
@@ -25,7 +37,14 @@ def require_user(request: Request):
         ).fetchone()
     if not user:
         raise HTTPException(401, "Authentification requise")
+    throttle_user(user["id"])
     return dict(user)
+
+
+def throttle_user(user_id, kind="requests", limit=300):
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        throttle(conn, f"rate:{kind}:{user_id}", limit=limit, window_seconds=60)
 
 
 User = Annotated[dict, Depends(require_user)]
@@ -54,7 +73,10 @@ def secure_cookie():
 
 
 def csrf(request: Request):
-    if request.headers.get("x-requested-with") != "EML-Investigation":
+    if request.headers.get("x-requested-with") not in {
+        "EML-Investigation",
+        "PhishCase",
+    }:
         raise HTTPException(403, "En-tête de protection CSRF requis")
 
 
@@ -86,14 +108,26 @@ def issue_session(conn, user, response):
     }
 
 
-def throttle(conn, identity, limit=10):
+def throttle(conn, identity, limit=10, window_seconds=900):
     now = time.time()
     attempt = conn.execute(
         "SELECT * FROM login_attempts WHERE identity=?", (identity,)
     ).fetchone()
-    if attempt and now - attempt["window"] < 900 and attempt["count"] >= limit:
-        raise HTTPException(429, "Trop de tentatives. Réessayer dans 15 minutes.")
-    if not attempt or now - attempt["window"] >= 900:
+    if (
+        attempt
+        and now - attempt["window"] < window_seconds
+        and attempt["count"] >= limit
+    ):
+        raise HTTPException(
+            429,
+            "Trop de tentatives. Réessayez après le délai indiqué.",
+            headers={
+                "Retry-After": str(
+                    max(1, int(window_seconds - (now - attempt["window"])))
+                )
+            },
+        )
+    if not attempt or now - attempt["window"] >= window_seconds:
         conn.execute(
             "INSERT OR REPLACE INTO login_attempts VALUES (?,1,?)", (identity, now)
         )
@@ -104,5 +138,5 @@ def throttle(conn, identity, limit=10):
 
 
 def revoke_auth(conn, user_id):
-    for table in ("sessions", "mfa_challenges", "mfa_pending"):
+    for table in ("sessions", "mfa_challenges", "mfa_pending", "api_tokens"):
         conn.execute(f"DELETE FROM {table} WHERE user_id=?", (user_id,))

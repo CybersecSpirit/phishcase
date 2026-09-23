@@ -1,12 +1,16 @@
-"""Persistent, single-team investigation store. No email data leaves this database."""
+"""Single-team SQLite metadata, with immutable originals in EvidenceStorage."""
 
+import fcntl
 import hashlib
 import hmac
 import os
 import secrets
 import sqlite3
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+
+database_factory: ContextVar = ContextVar("phishcase_database_factory", default=None)
 
 
 def password_hash(password: str, salt: str | None = None) -> str:
@@ -23,6 +27,11 @@ def password_matches(password: str, encoded: str) -> bool:
 
 @contextmanager
 def db():
+    factory = database_factory.get()
+    if factory is not None:
+        with factory() as connection:
+            yield connection
+        return
     path = Path(os.environ.get("INVESTIGATION_DB", "data/investigation.sqlite3"))
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, timeout=15)
@@ -36,8 +45,26 @@ def db():
 
 
 def initialize():
+    path = Path(os.environ.get("INVESTIGATION_DB", "data/investigation.sqlite3"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.with_suffix(path.suffix + ".init.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _initialize()
+
+
+def _initialize():
     with db() as conn:
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        )
+        latest = conn.execute(
+            "SELECT COALESCE(MAX(version),0) FROM schema_migrations"
+        ).fetchone()[0]
+        if latest > 2026092301:
+            raise RuntimeError(
+                "Database is newer than this application. Restore a compatible backup before rollback."
+            )
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -93,6 +120,25 @@ def initialize():
         ):
             if name not in user_columns:
                 conn.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
+
+        from .enrichment_api import initialize_enrichments
+        from .evidence import initialize_evidence
+        from .investigations import initialize_investigations
+        from .jobs import initialize_jobs
+        from .tokens import initialize_tokens
+
+        initialize_tokens(conn)
+        initialize_evidence(conn)
+        initialize_jobs(conn)
+        initialize_investigations(conn)
+        initialize_enrichments(conn)
+        if "locale" not in {r[1] for r in conn.execute("PRAGMA table_info(users)")}:
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'fr'"
+            )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version) VALUES (2026092301)"
+        )
 
 
 def audit(conn, actor, action, case_id=None, detail=""):
