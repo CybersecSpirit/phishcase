@@ -1,10 +1,14 @@
-# PhishCase
+# PhishCase Community Edition
 
 **Déposez un email suspect, consultez son analyse, retrouvez les preuves dans son dossier.**
 
 PhishCase est un espace d’investigation des emails pour une équipe de sécurité. Il accepte les fichiers **EML et MSG**, réutilise le moteur d’analyse de [eml_analyzer](https://github.com/ninoseki/eml_analyzer) et ajoute des comptes, des dossiers persistants, un tableau de bord, un historique et la corrélation des indicateurs de compromission (IOC).
 
 L’interface est en français. Le projet est auto-hébergé et livré avec Docker Compose.
+
+## Community et Enterprise
+
+Ce dépôt est la **Community Edition publique et MIT** de PhishCase. Il reste utilisable seul, sans dépendance commerciale. Les fonctions SaaS/Enterprise sont développées séparément dans un dépôt privé qui référence ce cœur. Voir [l'architecture open-core](docs/OPEN_CORE.md) pour les périmètres, la relation entre dépôts et les règles de contribution.
 
 ## Parcours d’utilisation
 
@@ -223,6 +227,6 @@ Le code et les dépendances doivent être évalués pour les exigences de votre 
 
 ## Origine et licence
 
-PhishCase est un fork de [ninoseki/eml_analyzer](https://github.com/ninoseki/eml_analyzer), dont il conserve le moteur et la [licence MIT](LICENSE). Merci aux auteurs et contributeurs du projet amont.
+PhishCase est issu de [ninoseki/eml_analyzer](https://github.com/ninoseki/eml_analyzer), dont il conserve le moteur et la [licence MIT](LICENSE). Merci aux auteurs et contributeurs du projet amont.
 
 Le développement initial est parti du checkout `093031e` associé à l’image locale existante. La fusion dans `master` intègre aussi les évolutions amont présentes dans le fork au commit `1f4f04b`, dont Python 3.14 et les dépendances actualisées. Le déploiement Heroku historique reste réservé au dépôt amont ; le chemin d’installation de PhishCase est `compose.phishcase.yml`.
