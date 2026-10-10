@@ -70,7 +70,7 @@ def initialize_workflows(conn):
 def conflict():
     raise HTTPException(
         409,
-        "Un autre analyste a modifié cet élément. Rechargez sa version avant d’enregistrer vos changements.",
+        "Un autre analyste a modifié cet élément. Rechargez sa version avant d’enregistrer vos changements.",  # noqa: RUF001
     )
 
 
@@ -163,7 +163,7 @@ def create_action(case_id: int, data: ActionInput, user: Writer):
         validate_owner(conn, data.owner_id)
         if data.status in {"done", "cancelled"} and not data.proof.strip():
             raise HTTPException(
-                422, "Documentez le résultat ou le motif de l’annulation"
+                422, "Documentez le résultat ou le motif de l’annulation"  # noqa: RUF001
             )
         cursor = conn.execute(
             "INSERT INTO case_actions(case_id,title,owner_id,due_date,status,proof,created_by) VALUES (?,?,?,?,?,?,?)",
@@ -202,7 +202,7 @@ def update_action(action_id: int, data: ActionInput, user: Writer):
         validate_owner(conn, data.owner_id)
         if data.status in {"done", "cancelled"} and not data.proof.strip():
             raise HTTPException(
-                422, "Documentez le résultat ou le motif de l’annulation"
+                422, "Documentez le résultat ou le motif de l’annulation"  # noqa: RUF001
             )
         conn.execute(
             "UPDATE case_actions SET title=?,owner_id=?,due_date=?,status=?,proof=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -412,7 +412,7 @@ def send_reply(reply_id: int, data: VersionInput, user: Writer):
     except Exception:
         state, failure = (
             "uncertain",
-            "La transmission n’a pas pu être confirmée. Vérifiez le transport avant tout nouvel envoi.",
+            "La transmission n’a pas pu être confirmée. Vérifiez le transport avant tout nouvel envoi.",  # noqa: RUF001
         )
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")

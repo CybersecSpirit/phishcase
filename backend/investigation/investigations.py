@@ -465,7 +465,7 @@ def decide(analysis_id: str, data: Decision, user: Writer):
         ):
             raise HTTPException(
                 409,
-                "Une autre décision a été enregistrée. Rechargez l’historique avant de conclure.",
+                "Une autre décision a été enregistrée. Rechargez l’historique avant de conclure.",  # noqa: RUF001
             )
         conn.execute(
             """INSERT INTO analyst_decisions(analysis_id,action,verdict,confidence,justification,actor_id)
@@ -499,7 +499,7 @@ def reopen(analysis_id: str, data: Reopen, user: Writer):
         ):
             raise HTTPException(
                 409,
-                "Une autre décision a été enregistrée. Rechargez l’historique avant de rouvrir.",
+                "Une autre décision a été enregistrée. Rechargez l’historique avant de rouvrir.",  # noqa: RUF001
             )
         if last is None or last["action"] == "reopened":
             raise HTTPException(409, "Aucune décision à rouvrir")
