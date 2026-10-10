@@ -11,7 +11,6 @@ import tempfile
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -84,14 +83,12 @@ def enqueue(
                     raise ValueError("Idempotency-Key already used for another upload")
                 return previous["id"]
         auto_title = None
-        if case_id is None:
-            auto_title = f"{datetime.now(UTC):%Y-%m-%d} · {filename}"[:200]
-            case_id = conn.execute(
-                "INSERT INTO cases(title,created_by,assignee_id) VALUES (?,?,?)",
-                (auto_title, user["id"], user["id"]),
-            ).lastrowid
-            audit(conn, user["id"], "case.created", case_id, auto_title)
-        elif not conn.execute("SELECT id FROM cases WHERE id=?", (case_id,)).fetchone():
+        if (
+            case_id is not None
+            and not conn.execute(
+                "SELECT id FROM cases WHERE id=?", (case_id,)
+            ).fetchone()
+        ):
             raise LookupError("Case not found")
         guard = ingestion_guard.get()
         if guard is not None:

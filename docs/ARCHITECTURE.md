@@ -2,7 +2,11 @@
 
 Vue → FastAPI → durable queue → bounded parser subprocess → SQLite metadata and
 filesystem EvidenceStorage. Original files and attachment bytes are immutable;
-analyst decisions, notes, IOC classifications and campaigns are separate records.
+analyst decisions, notes, IoC classifications and campaigns are separate records.
+Emails have no required parent container. `campaign_analyses` provides optional
+many-to-many grouping; campaigns carry collective follow-up while each email
+retains its individual verdict. Historical case records are archived through
+`legacy_case_links`. See [migration and API details](EMAIL_CAMPAIGNS.md).
 Reports expose normalized evidence and engine coverage, never infer safety merely
 from missing detections. Similarity results list exact shared signals; they are
 correlation hints, not proof of common attribution.

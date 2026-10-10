@@ -127,13 +127,14 @@ class ReportContextTests(unittest.TestCase):
         campaign = self.client.post(
             BASE + "/campaigns", json={"name": "Context campaign"}
         ).json()
-        for item in (first, second):
-            self.assertEqual(
-                self.client.put(
-                    BASE + f"/campaigns/{campaign['id']}/cases/{item['case_id']}"
-                ).status_code,
-                200,
-            )
+        linked = self.client.post(
+            BASE + f"/campaigns/{campaign['id']}/emails",
+            json={
+                "analysis_ids": [first["id"], second["id"]],
+                "revision": campaign["revision"],
+            },
+        )
+        self.assertEqual(linked.status_code, 200, linked.text)
         with db() as conn:
             analysis = analysis_record(conn, first["id"])
             before = analysis["result"]
@@ -156,7 +157,7 @@ class ReportContextTests(unittest.TestCase):
         report = self.client.get(BASE + "/analyses/" + first["id"]).json()
         context = report["result"]["investigation"]
         url = next(item for item in context["urls"] if item["value"] == URL)
-        self.assertEqual((url["analysis_count"], url["case_count"]), (2, 2))
+        self.assertEqual((url["analysis_count"], url["campaign_count"]), (2, 1))
         self.assertEqual(url["campaigns"][0]["id"], campaign["id"])
         self.assertEqual(
             url["enrichments"][0]["summary"], "Synthetic provider observation"

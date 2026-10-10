@@ -7,7 +7,7 @@ import { t } from '@/i18n'
 type Assessment = { level: string; label: string; explanation: string; missing_engines: string[] }
 type Result = {
   id: string
-  case_id: number
+  case_id: number | null
   subject: string
   filename: string
   status: string
@@ -159,7 +159,9 @@ function clear() {
       /></label>
       <small>
         {{
-          t('Chaque email est enregistré automatiquement dans un dossier « date · objet du mail ».')
+          t(
+            'Chaque email est conservé avec son original et son analyse. Le rattachement à une campagne est facultatif.'
+          )
         }}
       </small>
     </div>
@@ -217,18 +219,12 @@ function clear() {
         </div>
         <div v-if="item.result" class="intake-result-actions">
           <button class="text-link" @click="emit('open', item.result!.id)">
-            {{ t('Voir le résultat →') }}</button
-          ><button class="text-link" @click="emit('case', item.result!.case_id)">
-            {{ t('Dossier #') }} {{ item.result.case_id }}
+            {{ t('Voir le résultat →') }}
           </button>
         </div>
       </article>
       <p class="small muted">
-        {{
-          t(
-            'Les résultats restent disponibles dans Analyses et Dossiers, même si vous effacez cette liste.'
-          )
-        }}
+        {{ t('Les résultats restent disponibles dans Emails, même si vous effacez cette liste.') }}
       </p>
     </section>
   </section>

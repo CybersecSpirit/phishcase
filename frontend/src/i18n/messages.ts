@@ -626,4 +626,94 @@ Object.assign(messages, {
   'Notes et chronologie': 'Notes and timeline'
 })
 
-Object.assign(messages, { Indices: 'Signals', Explorer: 'Explore', Profil: 'Profile' })
+Object.assign(messages, { Explorer: 'Explore', Profil: 'Profile' })
+
+Object.assign(messages, {
+  IoC: 'IoC',
+  Emails: 'Emails',
+  'CHAQUE IoC COMPTE': 'EVERY IoC MATTERS',
+  'Des emails suspects aux investigations résolues.':
+    'From suspicious emails to resolved investigations.',
+  'Déposez votre email. Consultez son analyse. Regroupez les messages utiles dans une campagne si nécessaire.':
+    'Upload your email. Review its analysis. Group related messages into a campaign when needed.',
+  'Vos emails, les analyses à vérifier et les campagnes à suivre.':
+    'Your emails, analyses to review and campaigns to follow.',
+  'Chaque email est conservé avec son original et son analyse. Le rattachement à une campagne est facultatif.':
+    'Each email is saved with its original and analysis. Linking it to a campaign is optional.',
+  'Les résultats restent disponibles dans Emails, même si vous effacez cette liste.':
+    'Results remain available in Emails when you clear this list.',
+  'Campagnes à suivre': 'Campaigns to follow',
+  'Analyses à vérifier': 'Analyses to review',
+  'IoC fréquents': 'Frequent IoC',
+  'Tous les IoC': 'All IoC',
+  'IoC uniques extraits': 'Unique extracted IoC',
+  'Aucune campagne à suivre.': 'No campaigns to follow.',
+  'Campagne ou email': 'Campaign or email',
+  'Emails de la campagne': 'Campaign emails',
+  'Détacher un email conserve son original, son analyse et son verdict.':
+    'Unlinking an email preserves its original, analysis and verdict.',
+  Détacher: 'Unlink',
+  'Aucun email rattaché.': 'No linked emails.',
+  'Rattacher des emails': 'Link emails',
+  'Rattacher les emails': 'Link emails',
+  'Rechercher un email': 'Search emails',
+  'IoC de la campagne': 'Campaign IoC',
+  'Notes d’investigation': 'Investigation notes',
+  'Regroupez les emails liés et suivez leur investigation en équipe.':
+    'Group related emails and track their investigation as a team.',
+  'Mes campagnes': 'My campaigns',
+  'Actions à faire': 'Pending actions',
+  'email(s) sélectionné(s)': 'selected email(s)',
+  'Le rattachement est facultatif. Chaque email conserve son analyse et son verdict.':
+    'Linking is optional. Each email retains its analysis and verdict.',
+  'Nom de la nouvelle campagne': 'New campaign name',
+  'Créer une campagne avec ces emails': 'Create a campaign with these emails',
+  'IoC et corrélations': 'IoC and correlations',
+  'Rechercher un IoC': 'Search IoC',
+  'Qualification de l’IoC': 'IoC classification',
+  'Les IoC apparaîtront après l’analyse de vos emails.':
+    'IoC will appear once your emails have been analyzed.',
+  'Présence de l’IoC': 'IoC occurrences',
+  'Déposez un ou plusieurs fichiers EML / MSG. Chaque original et son analyse sont conservés sans créer de dossier.':
+    'Upload one or more EML / MSG files. Each original and analysis is saved independently.',
+  'Lisez l’original neutralisé et confrontez les éléments : expéditeur, liens, pièces jointes et en-têtes.':
+    'Read the inert original and compare sender, links, attachments and headers.',
+  'Créez une campagne d’investigation puis sélectionnez les emails pertinents.':
+    'Create an investigation campaign, then select the relevant emails.',
+  'Examinez les IoC partagés et les raisons exactes des similarités. Un signal commun est une piste, pas une attribution.':
+    'Examine shared IoC and the exact reasons for similarities. A shared signal is a lead, not attribution.',
+  'Documentez les sources, faits, limites et hypothèses dans le renseignement. Chaque email conserve son verdict.':
+    'Record sources, facts, limitations and hypotheses in intelligence. Each email retains its verdict.',
+  'Liens suggérés à partir d’IoC partagés. Aucun email n’est regroupé automatiquement.':
+    'Suggested links based on shared IoC. Emails are never grouped automatically.',
+  'Actions suivies': 'Tracked actions',
+  'La campagne porte le suivi collectif. Les actions ouvertes empêchent sa clôture.':
+    'The campaign tracks collective work. Open actions prevent closure.',
+  'Voir l’IoC': 'View IoC',
+  'IoC à rechercher': 'IoC to look up',
+  'Choisir un IoC': 'Choose an IoC'
+})
+
+Object.assign(messages, {
+  'Email rattaché': 'Email linked',
+  'Email détaché': 'Email unlinked',
+  'IoC qualifié': 'IoC classified',
+  'Contexte historique créé': 'Historical context created',
+  'Contexte historique mis à jour': 'Historical context updated',
+  'Lien historique ajouté': 'Historical link added',
+  'Lien historique retiré': 'Historical link removed',
+  'Rouvrez la campagne avant de créer une action': 'Reopen the campaign before creating an action',
+  'Rouvrez la campagne avant de modifier une action':
+    'Reopen the campaign before changing an action'
+})
+
+Object.assign(messages, {
+  'Synthèse de campagne': 'Campaign assessment',
+  'Sans verdict': 'No verdict',
+  'Chaque email conserve son verdict individuel.': 'Each email retains its individual verdict.',
+  'Archiver la campagne': 'Archive campaign',
+  Tag: 'Tag',
+  'Le suivi collectif des emails liés, par priorité et responsable.': 'Collective follow-up for related emails, by priority and owner.',
+  Résolue: 'Resolved',
+  Close: 'Closed'
+})

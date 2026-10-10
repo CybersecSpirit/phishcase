@@ -176,7 +176,7 @@ def investigation_context(conn, analysis_id, document):
         for row in conn.execute(
             """SELECT i.id AS ioc_id,i.kind,i.value,
             (SELECT count(*) FROM analysis_iocs x WHERE x.ioc_id=i.id) AS analysis_count,
-            (SELECT count(DISTINCT a.case_id) FROM analysis_iocs x JOIN analyses a ON a.id=x.analysis_id WHERE x.ioc_id=i.id) AS case_count
+            (SELECT count(DISTINCT ca.campaign_id) FROM analysis_iocs x JOIN campaign_analyses ca ON ca.analysis_id=x.analysis_id JOIN campaigns c ON c.id=ca.campaign_id WHERE x.ioc_id=i.id AND c.deleted_at IS NULL) AS campaign_count
             FROM iocs i JOIN analysis_iocs own ON own.ioc_id=i.id WHERE own.analysis_id=?""",
             (analysis_id,),
         )
@@ -184,7 +184,7 @@ def investigation_context(conn, analysis_id, document):
     campaigns = {}
     for row in conn.execute(
         """SELECT DISTINCT ai.ioc_id,c.id,c.name FROM analysis_iocs ai
-        JOIN analyses a ON a.id=ai.analysis_id JOIN campaign_cases cc ON cc.case_id=a.case_id
+        JOIN analyses a ON a.id=ai.analysis_id JOIN campaign_analyses cc ON cc.analysis_id=a.id
         JOIN campaigns c ON c.id=cc.campaign_id WHERE c.deleted_at IS NULL
         AND ai.ioc_id IN (SELECT ioc_id FROM analysis_iocs WHERE analysis_id=?) ORDER BY c.id""",
         (analysis_id,),
@@ -202,7 +202,7 @@ def investigation_context(conn, analysis_id, document):
         return {
             "ioc_id": ioc.get("ioc_id"),
             "analysis_count": ioc.get("analysis_count", 0),
-            "case_count": ioc.get("case_count", 0),
+            "campaign_count": ioc.get("campaign_count", 0),
             "campaigns": campaigns.get(ioc.get("ioc_id"), []),
             "enrichments": [
                 item

@@ -57,7 +57,7 @@ type Result = {
 type SignalContext = {
   ioc_id: number | null
   analysis_count: number
-  case_count: number
+  campaign_count: number
   campaigns: { id: number; name: string }[]
   enrichments: { id: string; provider: string; status: string; summary: string }[]
 }
@@ -114,7 +114,7 @@ const urlContexts = computed(
       destination_mismatch: false,
       ioc_id: null,
       analysis_count: 0,
-      case_count: 0,
+      campaign_count: 0,
       campaigns: [],
       enrichments: []
     }))
@@ -279,9 +279,10 @@ watch(
         <a
           :href="'/iocs/' + url.ioc_id"
           @click.exact.prevent="router.push('/iocs/' + url.ioc_id)"
-          >{{ t('Voir l’indicateur') }}</a
+          >{{ t('Voir l’IoC') }}</a
         >
-        · {{ url.analysis_count }} {{ t('Analyses') }} · {{ url.case_count }} {{ t('Dossiers') }}
+        · {{ url.analysis_count }} {{ t('Analyses') }} · {{ url.campaign_count }}
+        {{ t('Campagnes') }}
       </p>
       <p v-for="campaign in url.campaigns" :key="campaign.id">
         <a
@@ -307,10 +308,10 @@ watch(
           <a
             :href="'/iocs/' + attachment.ioc_id"
             @click.exact.prevent="router.push('/iocs/' + attachment.ioc_id)"
-            >{{ t('Voir l’indicateur') }}</a
+            >{{ t('Voir l’IoC') }}</a
           >
-          · {{ attachment.analysis_count }} {{ t('Analyses') }} · {{ attachment.case_count }}
-          {{ t('Dossiers') }}
+          · {{ attachment.analysis_count }} {{ t('Analyses') }} · {{ attachment.campaign_count }}
+          {{ t('Campagnes') }}
         </p>
         <p v-for="campaign in attachment.campaigns" :key="campaign.id">
           <a
@@ -329,11 +330,7 @@ watch(
     </template>
     <h2>{{ t('Emails similaires') }} ({{ similarities.total }})</h2>
     <p class="small muted">
-      {{
-        t(
-          'Liens suggérés à partir d’indicateurs partagés. Aucun dossier n’est fusionné automatiquement.'
-        )
-      }}
+      {{ t('Liens suggérés à partir d’IoC partagés. Aucun email n’est regroupé automatiquement.') }}
     </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <article v-for="item in similarities.items" :key="item.id" class="note">

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+
 import { errorMessage } from '@/errors'
 import { t } from '@/i18n'
 import type { Request } from '@/workspace'
@@ -7,7 +8,7 @@ import type { Request } from '@/workspace'
 type User = { id: number; username: string; active: boolean; role: string }
 type Action = {
   id: number
-  case_id: number
+  case_id: number | null
   title: string
   owner_id: number | null
   due_date: string | null
@@ -28,12 +29,20 @@ type Reply = {
   resolved_at?: string
 }
 const props = defineProps<{
-  caseId: number
+  caseId?: number
+  campaignId?: number
   request: Request
   canWrite: boolean
   users: User[]
   analysisId?: string
 }>()
+const scopePath = computed(() =>
+  props.campaignId
+    ? '/campaigns/' + props.campaignId
+    : props.analysisId
+      ? '/analyses/' + props.analysisId
+      : '/cases/' + props.caseId
+)
 const actions = ref<Action[]>([]),
   replies = ref<Reply[]>([]),
   transport = ref(false),
@@ -80,10 +89,8 @@ async function run(fn: () => Promise<unknown>) {
 }
 async function load() {
   const [a, r] = await Promise.all([
-    props.request<Action[]>('/cases/' + props.caseId + '/actions'),
-    props.request<{ items: Reply[]; transport_configured: boolean }>(
-      '/cases/' + props.caseId + '/replies'
-    )
+    props.request<Action[]>(scopePath.value + '/actions'),
+    props.request<{ items: Reply[]; transport_configured: boolean }>(scopePath.value + '/replies')
   ])
   actions.value = a
   replies.value = r.items
@@ -91,7 +98,7 @@ async function load() {
 }
 async function addAction() {
   await run(async () => {
-    await props.request('/cases/' + props.caseId + '/actions', 'POST', {
+    await props.request(scopePath.value + '/actions', 'POST', {
       ...action.value,
       due_date: action.value.due_date || null
     })
@@ -115,7 +122,7 @@ async function draft() {
       revision: editing.value?.revision
     }
     const saved = await props.request<Reply>(
-      editing.value ? '/replies/' + editing.value.id : '/cases/' + props.caseId + '/replies',
+      editing.value ? '/replies/' + editing.value.id : scopePath.value + '/replies',
       editing.value ? 'PUT' : 'POST',
       data
     )
@@ -169,7 +176,7 @@ async function send() {
   })
 }
 watch(
-  () => props.caseId,
+  () => scopePath.value,
   () => {
     editing.value = null
     preview.value = null
@@ -189,11 +196,11 @@ watch(
     <div class="dashboard-grid followup-grid">
       <section class="panel">
         <p class="eyebrow">01 / {{ t('Suivi opérationnel') }}</p>
-        <h2>{{ t('Actions du dossier') }}</h2>
+        <h2>{{ t('Actions à suivre') }}</h2>
         <p class="small muted">
           {{
             t(
-              'Chaque action a son responsable, son échéance et un résultat documenté. Les actions ouvertes bloquent la clôture du dossier.'
+              'Chaque action a son responsable, son échéance et un résultat documenté. Les actions ouvertes bloquent la clôture de la campagne.'
             )
           }}
         </p>

@@ -167,7 +167,7 @@ async def integration_health(provider: ProviderName, user: Admin):
 
 def analysis_record(conn, analysis_id):
     row = conn.execute(
-        "SELECT a.* FROM analyses a JOIN cases c ON c.id=a.case_id WHERE a.id=?",
+        "SELECT a.* FROM analyses a WHERE a.id=?",
         (analysis_id,),
     ).fetchone()
     if not row:

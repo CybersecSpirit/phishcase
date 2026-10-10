@@ -1,8 +1,8 @@
 # PhishCase Community Edition
 
-**Déposez un email suspect, consultez son analyse, retrouvez les preuves dans son dossier.**
+**Déposez un email suspect, consultez son analyse, conservez ses preuves et regroupez les messages utiles dans une campagne facultative.**
 
-PhishCase est un espace d’investigation des emails pour une équipe de sécurité. Il accepte les fichiers **EML et MSG**, réutilise le moteur d’analyse de [eml_analyzer](https://github.com/ninoseki/eml_analyzer) et ajoute des comptes, des dossiers persistants, un tableau de bord, un historique et la corrélation des indicateurs de compromission (IOC).
+PhishCase est un espace d’investigation des emails pour une équipe de sécurité. Il accepte les fichiers **EML et MSG**, réutilise le moteur d’analyse de [eml_analyzer](https://github.com/ninoseki/eml_analyzer) et ajoute des comptes, des emails persistants et des campagnes facultatives, un tableau de bord, un historique et la corrélation des IoC.
 
 L’interface est disponible en français et en anglais, avec une préférence conservée par utilisateur. Le projet est auto-hébergé et livré avec Docker Compose.
 
@@ -17,32 +17,32 @@ Ce dépôt est la **Community Edition publique et MIT** de PhishCase. Il reste u
 - [Connectivité, VirusTotal et urlscan](docs/ENRICHMENTS.md).
 - [Architecture](docs/ARCHITECTURE.md), [sécurité](SECURITY.md), [contribution](CONTRIBUTING.md), [roadmap](ROADMAP.md), [validation](docs/VALIDATION.md).
 
-Les campagnes regroupent plusieurs dossiers ; la recherche retrouve sujets, indicateurs et métadonnées. La classification de l’analyste, sa confiance et sa justification sont historisées séparément du résultat automatique ; une réouverture conserve les décisions précédentes.
+Les emails sont conservés indépendamment. Les campagnes regroupent les messages utiles à une investigation collective et portent responsable, priorité, statut, notes, actions et historique. Un email peut appartenir à plusieurs campagnes ; son verdict humain reste individuel et distinct du résultat automatique.
 
 ## Parcours d’utilisation
 
-1. Connectez-vous et ouvrez **Analyser un email**.
-2. Glissez un ou plusieurs fichiers EML/MSG, ou sélectionnez-les depuis votre ordinateur.
-3. Consultez le résumé de chaque analyse et ouvrez son rapport détaillé.
-4. Retrouvez l’email dans **Analyses** et dans son dossier créé automatiquement.
+1. Connectez-vous et ouvrez **Réception**.
+2. Déposez un ou plusieurs EML/MSG, puis ouvrez leurs analyses.
+3. Lisez les preuves et enregistrez le verdict, la confiance et la justification de chaque email.
+4. Retrouvez les messages dans **Emails**. Sélectionnez ceux qui sont liés pour créer une campagne ou les rattacher à une campagne existante.
 
-Aucun dossier préalable n’est requis. Chaque email reçoit un dossier nommé **`date UTC d’analyse · objet du message`**, par exemple `2026-09-18 · Facture à vérifier`. Si l’objet n’est pas disponible, le nom du fichier est utilisé. Deux emails au même nom ont des dossiers distincts. Les dossiers peuvent ensuite être renommés, assignés, annotés ou complétés avec d’autres emails.
+L’accueil présente derniers emails, analyses à vérifier, campagnes à suivre et IoC fréquents. Le dépôt reste immédiatement accessible. Aucun regroupement automatique n’est effectué.
 
-L’envoi accepte jusqu’à **20 fichiers par sélection**, de **20 Mo maximum chacun**. L’envoi reçoit un identifiant de travail persistant (HTTP 202). Gardez l’onglet ouvert pendant le transfert ; après réception, le worker poursuit l’analyse même si le navigateur est fermé. Les listes sont paginées, sans plafond historique de 500 éléments. Un email reçu dont l’analyse échoue reste dans son dossier avec son original et son état d’échec.
+L’envoi accepte jusqu’à **20 fichiers par sélection**, de **20 Mo maximum chacun**. L’envoi reçoit un identifiant de travail persistant (HTTP 202). Gardez l’onglet ouvert pendant le transfert ; après réception, le worker poursuit l’analyse même si le navigateur est fermé. Les listes sont paginées, sans plafond historique de 500 éléments. Un email reçu dont l’analyse échoue conserve son original et son état d’échec.
 
 ## Ce que contient PhishCase
 
 | Espace | Fonctionnalités |
 | --- | --- |
 | Analyser un email | Dépôt direct ou multiple, progression par fichier, résumé et accès au rapport |
-| Dossiers | Objet, description, priorité, statut, responsable, notes et chronologie |
-| Analyses | Historique, état du traitement, en-têtes, corps du message, résultats des moteurs et pièces jointes |
-| Indicateurs | URL, domaines, IP, adresses email et SHA-256 des PJ ; déduplication et liens vers les dossiers concernés |
-| Vue d’ensemble | Dossiers ouverts, nombre d’analyses, IOC, échecs et activité récente |
+| Campagnes | Regroupement facultatif d’emails, responsable, priorité, statut, notes, actions et chronologie |
+| Emails | Historique, état du traitement, en-têtes, corps du message, résultats des moteurs et pièces jointes |
+| IoC | URL, domaines, IP, adresses email et SHA-256 des PJ ; déduplication et liens vers les emails et campagnes concernés |
+| Vue d’ensemble | Derniers emails, analyses à vérifier, campagnes à suivre, IoC fréquents et activité |
 | Mon compte | MFA par application TOTP, codes de récupération et gestion de la sécurité personnelle |
 | Comptes | Création de comptes, rôles et activation/désactivation par un administrateur |
 
-Les IOC peuvent être qualifiés manuellement : **à qualifier**, **bénin**, **suspect** ou **malveillant**. Cette qualification est partagée pour le même IOC ; elle ne remplace pas les résultats des moteurs enregistrés dans les rapports.
+Les IoC peuvent être qualifiés manuellement : **à qualifier**, **bénin**, **suspect** ou **malveillant**. Cette qualification est partagée pour le même IoC ; elle ne remplace pas les résultats des moteurs enregistrés dans les rapports.
 
 ### Comprendre le résultat
 
@@ -57,7 +57,7 @@ Les IOC peuvent être qualifiés manuellement : **à qualifier**, **bénin**, **
 
 ### Pièces jointes et preuves
 
-Les pièces jointes restent rattachées à l’analyse de leur email, **dans le même dossier**. Elles ne créent pas de dossiers séparés.
+Les pièces jointes restent rattachées à leur email, avec ses preuves et son analyse.
 
 - L’original EML/MSG et son SHA-256 sont conservés.
 - Les octets des PJ et de l’original sont conservés dans EvidenceStorage, séparément du JSON, avec contrôle SHA-256 à la lecture et des clés de stockage opaques.
@@ -111,13 +111,13 @@ La commande crée un administrateur supplémentaire et **ne réinitialise pas un
 
 ### Rôles et visibilité
 
-| Rôle | Consultation des dossiers, analyses et PJ | Modification des dossiers, analyses et IOC | Gestion des comptes |
+| Rôle | Consultation des campagnes, emails et PJ | Modification des campagnes, emails et IoC | Gestion des comptes |
 | --- | --- | --- | --- |
 | Administrateur | Oui | Oui | Oui |
 | Analyste | Oui | Oui | Non |
 | Lecture seule | Oui | Non | Non |
 
-Une instance correspond à **une seule équipe**. Tous les comptes actifs peuvent consulter tous ses dossiers et preuves. L’affectation d’un responsable n’est pas une restriction d’accès par dossier.
+Une instance correspond à **une seule équipe**. Tous les comptes actifs peuvent consulter tous ses emails, campagnes et preuves. L’affectation d’un responsable n’est pas une restriction d’accès par campagne.
 
 Les mots de passe sont hachés avec scrypt. Les sessions serveur expirent après huit heures. Les écritures sont protégées contre les requêtes intersites ; les tentatives de connexion sont limitées. La modification des droits, la désactivation ou la réinitialisation du mot de passe d’un compte révoquent ses sessions.
 
@@ -143,7 +143,7 @@ Si le téléphone **et tous les codes de récupération** sont perdus, il n’ex
 
 ## Données et exploitation
 
-Les comptes, sessions, dossiers, rapports, originaux, PJ et IOC sont conservés dans SQLite, dans le volume **`phishcase_phishcase-data`** avec les commandes ci-dessus. Le chemin du fichier est `/data/phishcase.sqlite3`.
+Les comptes, sessions, campagnes, rapports, originaux, PJ et IoC sont conservés dans SQLite, dans le volume **`phishcase_phishcase-data`** avec les commandes ci-dessus. Le chemin du fichier est `/data/phishcase.sqlite3`.
 
 - Un redémarrage, une reconstruction ou `docker compose ... down` conserve le volume.
 - **`docker compose ... down -v` supprime le volume et ses données.**
@@ -189,19 +189,19 @@ Les variables backend supplémentaires doivent être transmises au conteneur dan
 
 Le Compose fourni publie uniquement sur **`127.0.0.1`**. Pour un accès partagé au travail, prévoir un reverse proxy HTTPS et `COOKIE_SECURE=true`, avec les règles réseau appropriées. Il n’y a pas de certificat ni d’exposition réseau d’équipe configurés automatiquement.
 
-Les services de réputation peuvent recevoir les indicateurs consultés si leurs clés sont configurées. La consultation VirusTotal des PJ utilise leurs empreintes ; l’interface PhishCase ne soumet pas automatiquement les fichiers à VirusTotal. Les anciennes routes synchrones ne sont plus montées. Toute soumission exige le mode connected, une autorisation du fournisseur pour ce type de donnée et une action explicite de l’analyste. Consultez [la documentation du moteur amont](docs/UPSTREAM.md) pour les autres paramètres.
+Les services de réputation peuvent recevoir les IoC consultés si leurs clés sont configurées. La consultation VirusTotal des PJ utilise leurs empreintes ; l’interface PhishCase ne soumet pas automatiquement les fichiers à VirusTotal. Les anciennes routes synchrones ne sont plus montées. Toute soumission exige le mode connected, une autorisation du fournisseur pour ce type de donnée et une action explicite de l’analyste. Consultez [la documentation du moteur amont](docs/UPSTREAM.md) pour les autres paramètres.
 
 ## Architecture et développement
 
 - **Frontend** : Vue 3, TypeScript et Vite, construit avec Node.js 24.
 - **Backend** : FastAPI, Python 3.14 et moteur `eml_analyzer`.
-- **Stockage** : SQLite avec clés étrangères et mode WAL ; Redis n’est pas nécessaire au stockage des dossiers.
-- **Analyse initiale locale** : parsing EML/MSG, extraction des IOC, SpamAssassin local et contrôles Office/OLE. Les vérifications DKIM nécessitant le DNS et EmailRep ne sont pas exécutées. Les enrichissements VirusTotal/urlscan sont des actions explicites séparées.
+- **Stockage** : SQLite avec clés étrangères et mode WAL ; Redis n’est pas nécessaire au stockage des emails et campagnes.
+- **Analyse initiale locale** : parsing EML/MSG, extraction des IoC, SpamAssassin local et contrôles Office/OLE. Les vérifications DKIM nécessitant le DNS et EmailRep ne sont pas exécutées. Les enrichissements VirusTotal/urlscan sont des actions explicites séparées.
 - **Déploiement fourni** : un conteneur avec API, worker et SpamAssassin local, plus un volume persistant contenant SQLite et les preuves.
 
 | Chemin | Contenu |
 | --- | --- |
-| `backend/investigation/` | Authentification, stockage, API des dossiers et synthèse des résultats |
+| `backend/investigation/` | Authentification, stockage, API des emails et campagnes et synthèse des résultats |
 | `backend/factories/` | Parsing et contrôles du moteur |
 | `frontend/src/components/AnalysisIntake.vue` | Dépôt multiple et résultats par email |
 | `frontend/src/views/WorkspaceView.vue` | Interface PhishCase |
@@ -220,7 +220,7 @@ uv run python -m unittest discover -s tests_workspace -v
 uv run ruff check backend/investigation tests_workspace
 ```
 
-Les tests PhishCase utilisent des bases temporaires et vérifient le MFA (activation, connexion, rejeu, expiration, limitation, récupération, chiffrement et migration), ainsi que les permissions, l’analyse EML/MSG, la création automatique des dossiers, la conservation des preuves, les téléchargements, les échecs et la qualification prudente des résultats. Les tests historiques du moteur sont dans `tests/`. Le workflow **PhishCase checks** compile l’interface et exécute les tests dédiés sur `master`.
+Les tests PhishCase utilisent des bases temporaires et vérifient le MFA (activation, connexion, rejeu, expiration, limitation, récupération, chiffrement et migration), ainsi que les permissions, l’analyse EML/MSG, les emails indépendants et les rattachements aux campagnes, la conservation des preuves, les téléchargements, les échecs et la qualification prudente des résultats. Les tests historiques du moteur sont dans `tests/`. Le workflow **PhishCase checks** compile l’interface et exécute les tests dédiés sur `master`.
 
 ## Périmètre actuel
 
@@ -228,9 +228,9 @@ PhishCase est une première version d’investigation mono-équipe. Cette branch
 
 - File persistante avec réservation atomique, reprise après expiration du bail, trois tentatives par défaut et relance manuelle. Le parseur tourne dans un processus isolé limité en temps/mémoire ; les originaux restent conservés après un échec.
 - Déploiement prévu pour un seul processus API ; pas de répartition sur plusieurs workers.
-- Pas d’isolation multi-organisation ou par dossier, de SSO, de passkeys/WebAuthn, de chiffrement applicatif des preuves ou de politique de rétention automatique.
+- Pas d’isolation multi-organisation ou par campagne, de SSO, de passkeys/WebAuthn, de chiffrement applicatif des preuves ou de politique de rétention automatique.
 - Pas de sandbox, d’export STIX ou de verdict garantissant qu’un fichier est sûr.
-- Pagination complète des dossiers, analyses, IOC, événements, campagnes et résultats de recherche. Les anciennes requêtes sans pagination conservent leur format tableau jusqu’à 500 résultats ; au-delà, une erreur 422 demande une pagination explicite, sans tronquer les résultats.
+- Pagination complète des campagnes, emails, IoC, événements, campagnes et résultats de recherche. Les anciennes requêtes sans pagination conservent leur format tableau jusqu’à 500 résultats ; au-delà, une erreur 422 demande une pagination explicite, sans tronquer les résultats.
 
 Le code et les dépendances doivent être évalués pour les exigences de votre environnement avant une exposition en production. Les vérifications réalisées sont décrites dans [docs/VALIDATION.md](docs/VALIDATION.md).
 
@@ -239,3 +239,5 @@ Le code et les dépendances doivent être évalués pour les exigences de votre 
 PhishCase est issu de [ninoseki/eml_analyzer](https://github.com/ninoseki/eml_analyzer), dont il conserve le moteur et la [licence MIT](LICENSE). Merci aux auteurs et contributeurs du projet amont.
 
 Le développement initial est parti du checkout `093031e` associé à l’image locale existante. La fusion dans `master` intègre aussi les évolutions amont présentes dans le fork au commit `1f4f04b`, dont Python 3.14 et les dépendances actualisées. Le déploiement Heroku historique reste réservé au dépôt amont ; le chemin d’installation de PhishCase est `compose.phishcase.yml`.
+
+La migration conservatrice et le contrat des campagnes sont décrits dans [Emails et campagnes](docs/EMAIL_CAMPAIGNS.md). Arrêtez les écritures et vérifiez sauvegarde, restauration et migration sur une copie avant une mise à jour.

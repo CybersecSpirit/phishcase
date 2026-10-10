@@ -414,10 +414,10 @@ class InvestigationTests(unittest.TestCase):
             response = self.client.put(PREFIX + root + f"/cases/{case_id}")
             self.assertEqual(response.status_code, 200, response.text)
         self.client.put(PREFIX + root + f"/cases/{first}")  # Idempotent link.
-        self.assertEqual(self.get(root)["case_count"], 2)
+        self.assertEqual(self.get(root + "/emails")["total"], 2)
         self.assertEqual(self.get(root)["analysis_count"], 2)
         self.assertEqual(self.get(root + "/cases", page_size=1)["pages"], 2)
-        self.assertEqual(self.get(root + "/iocs")["total"], 1)
+        self.assertEqual(self.get(root + "/iocs")["total"], 2)
         self.assertEqual(
             self.get(root + "/iocs")["items"][0]["value"], "shared.example"
         )
@@ -430,7 +430,8 @@ class InvestigationTests(unittest.TestCase):
             PREFIX + root,
             json={
                 "name": "Closed autumn invoices",
-                "status": "closed",
+                "status": "investigating",
+                "revision": self.get(root)["revision"],
                 "tags": ["fraud"],
                 "verdict": "phishing",
             },
@@ -439,11 +440,25 @@ class InvestigationTests(unittest.TestCase):
         self.assertEqual(
             self.client.delete(PREFIX + root + f"/cases/{second}").status_code, 200
         )
-        self.assertEqual(self.get(root + "/iocs")["total"], 0)
+        self.assertEqual(self.get(root + "/iocs")["total"], 2)
         self.assertEqual(
             self.get(root + "/events", action="campaign.case_detached")["total"], 1
         )
-        self.assertEqual(self.client.delete(PREFIX + root).status_code, 200)
+        for identity in ("first", "second"):
+            self.client.put(
+                PREFIX + f"/analyses/{identity}/decision",
+                json={
+                    "verdict": "phishing",
+                    "confidence": 80,
+                    "justification": "Reviewed",
+                },
+            )
+        self.assertEqual(
+            self.client.delete(
+                PREFIX + root + "?revision=" + str(self.get(root)["revision"])
+            ).status_code,
+            200,
+        )
         self.assertEqual(self.client.get(PREFIX + root).status_code, 404)
         self.assertEqual(self.get("/campaigns")["total"], 0)
         self.assertEqual(self.get("/search", q="autumn", type="campaign")["total"], 0)

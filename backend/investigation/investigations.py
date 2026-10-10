@@ -190,8 +190,9 @@ CASE_SELECT = """SELECT c.*,u.username AS assignee,
     (SELECT count(*) FROM analyses a WHERE a.case_id=c.id) AS analysis_count
     FROM cases c LEFT JOIN users u ON u.id=c.assignee_id"""
 ANALYSIS_SELECT = """SELECT a.id,a.case_id,a.filename,a.sha256,a.status,a.subject,a.error,
-    a.created_at,a.finished_at,c.title AS case_title FROM analyses a JOIN cases c ON c.id=a.case_id"""
+    a.created_at,a.finished_at,c.title AS case_title FROM analyses a LEFT JOIN cases c ON c.id=a.case_id"""
 IOC_SELECT = """SELECT i.*,count(DISTINCT ai.analysis_id) AS analysis_count,
+    (SELECT count(DISTINCT ca.campaign_id) FROM campaign_analyses ca JOIN analysis_iocs x ON x.analysis_id=ca.analysis_id JOIN campaigns p ON p.id=ca.campaign_id WHERE x.ioc_id=i.id AND p.deleted_at IS NULL) AS campaign_count,
     count(DISTINCT a.case_id) AS case_count FROM iocs i
     JOIN analysis_iocs ai ON ai.ioc_id=i.id JOIN analyses a ON a.id=ai.analysis_id"""
 CAMPAIGN_SELECT = """SELECT c.*,
@@ -320,7 +321,7 @@ def occurrences(
     limit: int | None = Query(None, ge=1, le=200),
 ):
     sql = """SELECT a.id,a.filename,a.subject,a.case_id,a.status,a.created_at,c.title FROM analyses a
-        JOIN analysis_iocs ai ON ai.analysis_id=a.id JOIN cases c ON c.id=a.case_id
+        JOIN analysis_iocs ai ON ai.analysis_id=a.id LEFT JOIN cases c ON c.id=a.case_id
         WHERE ai.ioc_id=? AND (? IS NULL OR a.case_id=?) AND (?='' OR a.status=?)
         AND (a.subject LIKE ? ESCAPE '\\' OR a.filename LIKE ? ESCAPE '\\' OR c.title LIKE ? ESCAPE '\\')
         ORDER BY a.created_at DESC,a.id DESC"""
@@ -350,7 +351,7 @@ def get_ioc(ioc_id: int, user: User):
             dict(row)
             for row in conn.execute(
                 """SELECT DISTINCT c.id,c.name FROM campaigns c
-            JOIN campaign_cases cc ON cc.campaign_id=c.id JOIN analyses a ON a.case_id=cc.case_id
+            JOIN campaign_analyses cc ON cc.campaign_id=c.id JOIN analyses a ON a.id=cc.analysis_id
             JOIN analysis_iocs ai ON ai.analysis_id=a.id WHERE ai.ioc_id=? AND c.deleted_at IS NULL ORDER BY c.id DESC""",
                 (ioc_id,),
             )
@@ -512,6 +513,10 @@ def reopen(analysis_id: str, data: Reopen, user: Writer):
             "UPDATE cases SET status='investigating',revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (analysis["case_id"],),
         )
+        conn.execute(
+            "UPDATE campaigns SET status='investigating',revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id IN (SELECT campaign_id FROM campaign_analyses WHERE analysis_id=?) AND deleted_at IS NULL",
+            (analysis_id,),
+        )
         audit(
             conn,
             user["id"],
@@ -668,8 +673,15 @@ def attach_case(campaign_id: int, case_id: int, user: Writer):
             "INSERT OR IGNORE INTO campaign_cases VALUES (?,?)", (campaign_id, case_id)
         )
         if cursor.rowcount:
+            for row in conn.execute(
+                "SELECT id FROM analyses WHERE case_id=?", (case_id,)
+            ).fetchall():
+                conn.execute(
+                    "INSERT OR IGNORE INTO campaign_analyses(campaign_id,analysis_id) VALUES (?,?)",
+                    (campaign_id, row["id"]),
+                )
             conn.execute(
-                "UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                "UPDATE campaigns SET revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (campaign_id,),
             )
             _campaign_audit(
@@ -694,6 +706,10 @@ def detach_case(campaign_id: int, case_id: int, user: Writer):
             (campaign_id, case_id),
         )
         if cursor.rowcount:
+            conn.execute(
+                "DELETE FROM campaign_analyses WHERE campaign_id=? AND analysis_id IN (SELECT id FROM analyses WHERE case_id=?)",
+                (campaign_id, case_id),
+            )
             conn.execute(
                 "UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP WHERE id=?",
                 (campaign_id,),
@@ -818,7 +834,7 @@ def similarities(
             SHARED_SIGNALS
             + """SELECT a.id,a.case_id,a.subject,a.filename,a.status,a.created_at,
             c.title AS case_title,count(*) AS shared_signal_count FROM shared s JOIN analyses a ON a.id=s.analysis_id
-            JOIN cases c ON c.id=a.case_id GROUP BY a.id ORDER BY shared_signal_count DESC,a.created_at DESC,a.id DESC""",
+            LEFT JOIN cases c ON c.id=a.case_id GROUP BY a.id ORDER BY shared_signal_count DESC,a.created_at DESC,a.id DESC""",
             (analysis_id, analysis_id),
             page,
             page_size,
@@ -859,7 +875,7 @@ def search(
     fragments = {
         "case": (
             """SELECT 'case' AS type,c.id,c.title,c.description AS subtitle,'/cases/'||c.id AS url,c.created_at AS sort_at
-            FROM cases c WHERE c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\'""",
+            FROM cases c WHERE 0=1 AND (c.title LIKE ? ESCAPE '\\' OR c.description LIKE ? ESCAPE '\\')""",
             [pattern] * 2,
         ),
         "analysis": (
