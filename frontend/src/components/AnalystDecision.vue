@@ -36,6 +36,7 @@ const names: Record<string, string> = {
   suspicious: 'Suspect',
   inconclusive: 'Non concluant'
 }
+const latestId = ref(0)
 const current = ref<Decision | null>(null),
   history = ref(emptyPage<Decision>()),
   verdict = ref('inconclusive'),
@@ -45,11 +46,14 @@ const current = ref<Decision | null>(null),
   busy = ref(false)
 async function load(page = 1) {
   const [decision, events] = await Promise.all([
-    props.request<{ current: Decision | null }>('/analyses/' + props.analysisId + '/decision'),
+    props.request<{ current: Decision | null; latest_id: number }>(
+      '/analyses/' + props.analysisId + '/decision'
+    ),
     props.request<Page<Decision>>(
       '/analyses/' + props.analysisId + '/decision/history?' + pageQuery(page)
     )
   ])
+  latestId.value = decision.latest_id
   current.value = decision.current
   history.value = events
 }
@@ -70,8 +74,9 @@ async function save(reopen = false) {
       '/analyses/' + props.analysisId + '/decision' + (reopen ? '/reopen' : ''),
       reopen ? 'POST' : 'PUT',
       reopen
-        ? { justification: justification.value }
+        ? { justification: justification.value, expected_decision_id: latestId.value }
         : {
+            expected_decision_id: latestId.value,
             verdict: verdict.value,
             confidence: Number(confidence.value),
             justification: justification.value
@@ -89,7 +94,10 @@ watch(
 </script>
 <template>
   <section class="panel human-decision">
-    <h2>{{ t('Décision analyste') }}</h2>
+    <div class="panel-title">
+      <h2>{{ t('Décision analyste') }}</h2>
+      <button class="secondary" :disabled="busy" @click="run(load)">{{ t('Actualiser') }}</button>
+    </div>
     <p class="small muted">
       {{ t('Cette décision humaine est indépendante des résultats automatiques.') }}
     </p>

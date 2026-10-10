@@ -41,3 +41,16 @@ export const eventMessages: Record<string, string> = {
   'user.created': 'Compte créé',
   'user.updated': 'Compte mis à jour'
 }
+
+Object.assign(eventMessages, {
+  'action.created': 'Action créée',
+  'action.updated': 'Action mise à jour',
+  'reply.drafted': 'Brouillon créé',
+  'reply.updated': 'Brouillon mis à jour',
+  'reply.send_requested': 'Envoi demandé',
+  'reply.accepted': 'Réponse acceptée par le transport',
+  'reply.uncertain': 'Transmission à vérifier',
+  'reply.reconciled': 'Résultat de transmission rapproché',
+  'reply.transport_observed': 'Retour du transport reçu après rapprochement',
+  'intelligence.documented': 'Renseignement documenté'
+})

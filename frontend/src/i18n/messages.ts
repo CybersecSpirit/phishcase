@@ -1,5 +1,20 @@
 /** French message IDs with English translations; placeholders are shared between locales. */
 export const messages: Record<string, string> = {
+  'Rapprocher le résultat d’envoi': 'Reconcile the transmission result',
+  'Preuve du rapprochement': 'Reconciliation evidence',
+  'Résultat vérifié': 'Verified result',
+  'Acceptation confirmée par le transport': 'Acceptance confirmed by the transport',
+  'Échec confirmé, aucune acceptation par le transport':
+    'Confirmed failure, not accepted by the transport',
+  'Enregistrer le résultat vérifié': 'Record the verified result',
+  'Vérifiez les journaux du transport. Confirmez une acceptation ou un échec établi, avec une référence ou une preuve. Cette opération ne transmet aucun message.':
+    'Review the transport logs. Confirm established acceptance or failure with a reference or evidence. This operation does not transmit a message.',
+  'Après un échec vérifié, vous pourrez modifier le brouillon puis le prévisualiser et l’envoyer explicitement. Aucun nouvel envoi automatique.':
+    'After a verified failure, you can edit the draft, preview it and explicitly send it. No automatic new transmission.',
+  'Seule une transmission à vérifier peut être rapprochée':
+    'Only a transmission awaiting review can be reconciled',
+  'Résultat de transmission rapproché': 'Transmission result reconciled',
+  'Retour du transport reçu après rapprochement': 'Transport result received after reconciliation',
   Actions: 'Actions',
   Menu: 'Menu',
   'Fermer le menu': 'Close menu',
@@ -457,3 +472,158 @@ export const messages: Record<string, string> = {
   'Une incohérence d’identité est déclarée ; vérifiez les en-têtes et le contexte.':
     'An identity inconsistency is reported; check the headers and context.'
 }
+
+Object.assign(messages, {
+  Réception: 'Inbox',
+  Renseignement: 'Intelligence',
+  'Suivi des actions': 'Action follow-up',
+  'Mes dossiers': 'My cases',
+  Équipe: 'Team',
+  'Mes actions': 'My actions',
+  Action: 'Action',
+  Échéance: 'Due date',
+  'À faire': 'To do',
+  Terminée: 'Completed',
+  Annulée: 'Cancelled',
+  Brouillon: 'Draft',
+  'Transmission à vérifier': 'Transmission to review',
+  'Acceptée par le transport': 'Accepted by transport',
+  Échec: 'Failed',
+  'Chaque message mérite une lecture attentive.': 'Every message deserves a careful reading.',
+  'Du premier signalement à la décision argumentée. Votre espace d’investigation et votre équipe.':
+    'From the first report to a reasoned decision. Your investigation workspace and your team.',
+  Identification: 'Sign in',
+  'Ouvrir votre espace': 'Open your workspace',
+  'Aucune action à suivre.': 'No actions to follow up.',
+  'Messages reçus': 'Received messages',
+  'Toutes les analyses': 'All analyses',
+  'Déposez votre premier message pour commencer.': 'Upload your first message to begin.',
+  'Mes investigations': 'My investigations',
+  'Reprendre un dossier': 'Resume a case',
+  'Vos dossiers, vos décisions. Les indices se lisent à l’échelle de l’équipe.':
+    'Your cases, your decisions. Signals are read across the team.',
+  Message: 'Message',
+  'Message neutralisé': 'Neutralized message',
+  'Indices et corrélations': 'Signals and correlations',
+  'Enrichissements et technique': 'Enrichment and technical details',
+  'Réponse et actions': 'Replies and actions',
+  'Suivi opérationnel': 'Operational follow-up',
+  'Actions du dossier': 'Case actions',
+  'Chaque action a son responsable, son échéance et un résultat documenté. Les actions ouvertes bloquent la clôture du dossier.':
+    'Each action has an owner, a due date and a documented result. Open actions prevent case closure.',
+  'Ajouter l’action': 'Add action',
+  'Aucune action enregistrée.': 'No actions recorded.',
+  'Preuve, résultat ou motif d’annulation': 'Evidence, result or cancellation reason',
+  'Retour au signalant': 'Reporter response',
+  'Répondre au signalant': 'Reply to the reporter',
+  'Le destinataire est renseigné par l’analyste : l’expéditeur du message suspect n’est jamais utilisé automatiquement.':
+    'The analyst provides the recipient; the suspicious message sender is never used automatically.',
+  'Transport non configuré. Vous pouvez préparer et copier le brouillon.':
+    'No transport configured. You can prepare and copy the draft.',
+  'Destinataire du signalement': 'Report recipient',
+  Objet: 'Subject',
+  'Créer le brouillon et prévisualiser': 'Create draft and preview',
+  'Enregistrer et prévisualiser': 'Save and preview',
+  Prévisualisation: 'Preview',
+  'Envoyer cette réponse': 'Send this reply',
+  'Un envoi accepté confirme la prise en charge par le transport, pas la lecture ni la livraison au destinataire.':
+    'An accepted send confirms transport acceptance, not recipient delivery or reading.',
+  Prévisualiser: 'Preview',
+  'Modifier le brouillon': 'Edit draft',
+  'Fuites / campagnes / contexte': 'Leaks / campaigns / context',
+  'Renseignement documenté': 'Documented intelligence',
+  'Documenter une observation': 'Document an observation',
+  'Consignez une fuite, une source et les correspondances observées. Séparez les faits, les contre-indices et les hypothèses. La confiance est celle de l’analyste ; aucun lien ni attribution n’est déduit automatiquement.':
+    'Record a leak, a source and observed matches. Separate facts, counter-evidence and hypotheses. Confidence is provided by the analyst; links and attribution are never inferred automatically.',
+  Observation: 'Observation',
+  'Sans rattachement': 'No link',
+  'Source / référence': 'Source / reference',
+  'Référence conservée en texte. Aucune consultation distante automatique.':
+    'Reference saved as text. No automatic remote retrieval.',
+  'Faits observés et correspondances vérifiables': 'Observed facts and verifiable matches',
+  'Contre-indices et limites': 'Counter-evidence and limitations',
+  'Hypothèse de rapprochement': 'Correlation hypothesis',
+  'Date d’observation': 'Observation date',
+  'Confiance analyste (%)': 'Analyst confidence (%)',
+  'Enregistrer l’observation': 'Save observation',
+  'Aucune observation documentée. Ajoutez une source utile à vos investigations.':
+    'No observations documented. Add a source useful to your investigations.',
+  'confiance analyste': 'analyst confidence',
+  Faits: 'Facts',
+  'Contre-indices': 'Counter-evidence',
+  Hypothèse: 'Hypothesis',
+  'Guide de cette tâche': 'Task guide',
+  'Fermer le guide': 'Close guide',
+  'Du dépôt à la qualification': 'From upload to qualification',
+  'Prendre une décision traçable': 'Make a traceable decision',
+  'Travailler en équipe': 'Work as a team',
+  'Construire une corrélation': 'Build a correlation',
+  Suivant: 'Next',
+  Précédent: 'Previous',
+  Terminer: 'Finish',
+  'Déposez un ou plusieurs fichiers EML / MSG. Chaque original est conservé dans son dossier et assigné à votre compte.':
+    'Upload one or more EML / MSG files. Each original is preserved in a case assigned to your account.',
+  'Ouvrez le résultat : lisez le message neutralisé, examinez les preuves puis les contrôles automatiques.':
+    'Open the result: read the neutralized message, examine the evidence and automated checks.',
+  'Enregistrez votre verdict, votre confiance et une justification. Préparez ensuite le retour au signalant et les actions.':
+    'Save your verdict, confidence and justification. Then prepare the reporter reply and follow-up actions.',
+  'Lisez l’original neutralisé et confrontez les indices : expéditeur, liens, pièces jointes et en-têtes.':
+    'Read the neutralized original and compare signals: sender, links, attachments and headers.',
+  'Les résultats automatiques sont des éléments de preuve. Choisissez l’un des huit verdicts et documentez vos raisons.':
+    'Automated results are evidence. Choose one of the eight verdicts and document your reasons.',
+  'L’historique conserve chaque décision. Une modification concurrente vous invite à recharger ; une réouverture exige une justification.':
+    'History preserves every decision. Concurrent edits require reloading; reopening requires a justification.',
+  'Passez de « Mes dossiers » à la vue d’équipe pour répartir les investigations.':
+    'Switch from My cases to Team to distribute investigations.',
+  'Attribuez le dossier à un analyste. Les notes, décisions et actions restent visibles à l’équipe selon ses droits.':
+    'Assign the case to an analyst. Notes, decisions and actions remain visible to the team according to its permissions.',
+  'Expliquez les rapprochements entre messages et campagnes ; terminez les actions et qualifiez les messages avant la clôture.':
+    'Explain links between messages and campaigns; complete actions and qualify messages before closing.',
+  'Créez une campagne d’investigation puis rattachez les dossiers pertinents.':
+    'Create an investigation campaign and link relevant cases.',
+  'Examinez les indicateurs partagés et les raisons exactes des similarités. Un signal commun est une piste, pas une attribution.':
+    'Examine shared indicators and exact similarity reasons. A shared signal is a lead, not an attribution.',
+  'Documentez les sources, faits, contre-indices et hypothèses dans le renseignement. Les dossiers restent distincts.':
+    'Document sources, facts, counter-evidence and hypotheses in Intelligence. Cases remain separate.',
+  'Un autre analyste a modifié cet élément. Rechargez sa version avant d’enregistrer vos changements.':
+    'Another analyst changed this item. Reload its version before saving your changes.',
+  'Clôture impossible : terminez les actions, qualifiez les messages et vérifiez les réponses en cours.':
+    'Cannot close: finish actions, qualify messages and review pending replies.',
+  'Rouvrez le dossier avant de créer une action': 'Reopen the case before creating an action.',
+  'Rouvrez le dossier avant de modifier une action': 'Reopen the case before changing an action.',
+  'Une preuve ou un résultat est requis pour terminer l’action':
+    'Evidence or a result is required to complete the action.',
+  'Documentez le résultat ou le motif de l’annulation':
+    'Document the result or the cancellation reason.',
+  'Aucun transport de réponse configuré. Le brouillon reste disponible.':
+    'No reply transport configured. The draft remains available.',
+  'Cette réponse a déjà été transmise ou son envoi reste à vérifier':
+    'This reply has already been transmitted or requires delivery review.',
+  'Le message doit appartenir à ce dossier': 'The message must belong to this case.',
+  'Seul un brouillon peut être envoyé ; un envoi en cours ne doit pas être répété':
+    'Only a draft can be sent; a pending transmission must not be repeated.',
+  'Enregistrez une décision analyste avant de répondre au signalant':
+    'Save an analyst decision before replying to the reporter.',
+  'La transmission n’a pas pu être confirmée. Vérifiez le transport avant tout nouvel envoi.':
+    'Transmission could not be confirmed. Review the transport before sending again.',
+  'Une autre décision a été enregistrée. Rechargez l’historique avant de conclure.':
+    'Another decision was recorded. Reload history before deciding.',
+  'Une autre décision a été enregistrée. Rechargez l’historique avant de rouvrir.':
+    'Another decision was recorded. Reload history before reopening.'
+})
+
+Object.assign(messages, {
+  'Action créée': 'Action created',
+  'Action mise à jour': 'Action updated',
+  'Brouillon créé': 'Draft created',
+  'Brouillon mis à jour': 'Draft updated',
+  'Envoi demandé': 'Send requested',
+  'Réponse acceptée par le transport': 'Reply accepted by transport'
+})
+
+Object.assign(messages, {
+  Investigation: 'Investigation',
+  'Notes et chronologie': 'Notes and timeline'
+})
+
+Object.assign(messages, { Indices: 'Signals', Explorer: 'Explore', Profil: 'Profile' })

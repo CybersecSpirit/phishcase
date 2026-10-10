@@ -398,6 +398,7 @@ class Decision(BaseModel):
     verdict: VerdictValue
     confidence: int = Field(ge=0, le=100)
     justification: str = Field(min_length=1, max_length=20000)
+    expected_decision_id: int | None = Field(default=None, ge=0)
 
     @field_validator("justification")
     @classmethod
@@ -409,6 +410,7 @@ class Decision(BaseModel):
 
 class Reopen(BaseModel):
     justification: str = Field(min_length=1, max_length=20000)
+    expected_decision_id: int | None = Field(default=None, ge=0)
 
     @field_validator("justification")
     @classmethod
@@ -429,6 +431,7 @@ def get_decision(analysis_id: str, user: User):
         history = _page(conn, DECISION_SELECT, (analysis_id,), 1, 50)
         latest = history["items"][0] if history["items"] else None
         return {
+            "latest_id": latest["id"] if latest else 0,
             "current": latest if latest and latest["action"] == "decided" else None,
             "history": history["items"],
             "history_total": history["total"],
@@ -452,6 +455,18 @@ def decide(analysis_id: str, data: Decision, user: Writer):
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         analysis = _exists(conn, "analyses", analysis_id, "Analyse introuvable")
+        latest = conn.execute(
+            "SELECT COALESCE(max(id),0) FROM analyst_decisions WHERE analysis_id=?",
+            (analysis_id,),
+        ).fetchone()[0]
+        if (
+            data.expected_decision_id is not None
+            and data.expected_decision_id != latest
+        ):
+            raise HTTPException(
+                409,
+                "Une autre décision a été enregistrée. Rechargez l’historique avant de conclure.",
+            )
         conn.execute(
             """INSERT INTO analyst_decisions(analysis_id,action,verdict,confidence,justification,actor_id)
             VALUES (?,'decided',?,?,?,?)""",
@@ -479,6 +494,13 @@ def reopen(analysis_id: str, data: Reopen, user: Writer):
         conn.execute("BEGIN IMMEDIATE")
         analysis = _exists(conn, "analyses", analysis_id, "Analyse introuvable")
         last = conn.execute(DECISION_SELECT, (analysis_id,)).fetchone()
+        if data.expected_decision_id is not None and data.expected_decision_id != (
+            last["id"] if last else 0
+        ):
+            raise HTTPException(
+                409,
+                "Une autre décision a été enregistrée. Rechargez l’historique avant de rouvrir.",
+            )
         if last is None or last["action"] == "reopened":
             raise HTTPException(409, "Aucune décision à rouvrir")
         conn.execute(
@@ -487,7 +509,7 @@ def reopen(analysis_id: str, data: Reopen, user: Writer):
             (analysis_id, data.justification, user["id"]),
         )
         conn.execute(
-            "UPDATE cases SET status='investigating',updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            "UPDATE cases SET status='investigating',revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (analysis["case_id"],),
         )
         audit(

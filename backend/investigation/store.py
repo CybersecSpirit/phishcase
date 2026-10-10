@@ -61,7 +61,7 @@ def _initialize():
         latest = conn.execute(
             "SELECT COALESCE(MAX(version),0) FROM schema_migrations"
         ).fetchone()[0]
-        if latest > 2026092301:
+        if latest > 2026101001:
             raise RuntimeError(
                 "Database is newer than this application. Restore a compatible backup before rollback."
             )
@@ -126,18 +126,23 @@ def _initialize():
         from .investigations import initialize_investigations
         from .jobs import initialize_jobs
         from .tokens import initialize_tokens
+        from .workflows import initialize_workflows
 
         initialize_tokens(conn)
         initialize_evidence(conn)
         initialize_jobs(conn)
         initialize_investigations(conn)
         initialize_enrichments(conn)
+        initialize_workflows(conn)
         if "locale" not in {r[1] for r in conn.execute("PRAGMA table_info(users)")}:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'fr'"
             )
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations(version) VALUES (2026092301)"
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version) VALUES (2026101001)"
         )
 
 

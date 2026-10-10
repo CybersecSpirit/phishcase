@@ -9,6 +9,9 @@ import CampaignWorkspace from '@/components/CampaignWorkspace.vue'
 import EnrichmentResults from '@/components/EnrichmentResults.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
 import InvestigationContext from '@/components/InvestigationContext.vue'
+import OperationalFollowup from '@/components/OperationalFollowup.vue'
+import IntelligenceWorkspace from '@/components/IntelligenceWorkspace.vue'
+import TaskGuide from '@/components/TaskGuide.vue'
 import PaginationControls from '@/components/PaginationControls.vue'
 import { errorMessage, RequestError } from '@/errors'
 import { locale, setLocale, setLocaleUser, t } from '@/i18n'
@@ -32,6 +35,7 @@ type Case = {
   description: string
   status: string
   priority: string
+  revision: number
   assignee_id: number | null
   assignee?: string
   analysis_count?: number
@@ -146,7 +150,7 @@ const mobileMenuButton = ref<HTMLButtonElement | null>(null)
 function closeMobileMenu() {
   if (mobileMenuOpen.value) {
     mobileMenuOpen.value = false
-    mobileMenuButton.value?.focus()
+    void nextTick(() => mobileMenuButton.value?.focus())
   }
 }
 const tab = ref('intake'),
@@ -172,6 +176,26 @@ const newName = ref(''),
 const occurrences = ref<{ id: string; filename: string; case_id: number; title: string }[] | null>(
   null
 )
+type FollowupAction = {
+  id: number
+  case_id: number
+  title: string
+  owner: string
+  due_date: string
+  status: string
+}
+const caseScope = ref('mine'),
+  actionScope = ref('mine'),
+  actionPage = ref(emptyPage<FollowupAction>())
+const actionRows = computed(() => actionPage.value.items)
+const reportView = ref('message'),
+  caseView = ref('investigation')
+const actionNames: Record<string, string> = {
+  todo: 'À faire',
+  doing: 'En cours',
+  done: 'Terminée',
+  cancelled: 'Annulée'
+}
 const casePage = ref(emptyPage<Case>()),
   analysisPage = ref(emptyPage<Analysis>()),
   iocPage = ref(emptyPage<IOC>()),
@@ -183,12 +207,14 @@ const selectedIoc = ref<IOC | null>(null)
 const analysisStatus = ref('')
 const writer = computed(() => user.value && user.value.role !== 'viewer')
 const tabs = computed(() => [
-  ['intake', t('Analyser un email')],
+  ['intake', t('Réception')],
   ['dashboard', t('Vue d’ensemble')],
   ['cases', t('Dossiers')],
   ['analyses', t('Analyses')],
-  ['iocs', t('Indicateurs')],
+  ['iocs', t('Indices')],
   ['campaigns', t('Campagnes')],
+  ['intelligence', t('Renseignement')],
+  ['actions', t('Actions')],
   ['search', t('Recherche globale')],
   ['integrations', t('Intégrations')],
   ['security', t('Mon compte')],
@@ -196,6 +222,15 @@ const tabs = computed(() => [
     ? [['users', t('Comptes')]]
     : [])
 ])
+const primaryTabs = computed(() =>
+  tabs.value.filter(([id]) => ['intake', 'cases', 'iocs', 'campaigns', 'actions'].includes(id!))
+)
+const explorerTabs = computed(() =>
+  tabs.value.filter(([id]) => ['dashboard', 'analyses', 'search', 'intelligence'].includes(id!))
+)
+const accountTabs = computed(() =>
+  tabs.value.filter(([id]) => ['integrations', 'security', 'users'].includes(id!))
+)
 const navIcons: Record<string, string> = {
   intake: '↥',
   dashboard: '◫',
@@ -265,9 +300,27 @@ async function act(fn: () => Promise<void>) {
     busy.value = false
   }
 }
+function changeActionScope(value: string) {
+  actionScope.value = value
+  void act(refresh)
+}
+function changeCaseScope(value: string) {
+  caseScope.value = value
+  void listPage(1)
+}
+async function loadActionPage(page = 1) {
+  actionPage.value = await api<Page<FollowupAction>>(
+    '/actions?scope=' + actionScope.value + '&page=' + page
+  )
+}
 async function loadCases(page = 1) {
   casePage.value = await api<Page<Case>>(
-    '/cases?' + pageQuery(page, { q: query.value, status: caseStatus.value })
+    '/cases?' +
+      pageQuery(page, {
+        q: query.value,
+        status: caseStatus.value,
+        assignee_id: caseScope.value === 'mine' ? user.value?.id : undefined
+      })
   )
   cases.value = casePage.value.items || []
 }
@@ -305,7 +358,8 @@ async function refresh() {
   const [d, u] = await Promise.all([api<Dashboard>('/dashboard'), api<User[]>('/users')])
   dashboard.value = d
   users.value = u
-  if (tab.value === 'dashboard' || tab.value === 'cases') await loadCases(casePage.value.page)
+  if (['dashboard', 'cases', 'intake'].includes(tab.value)) await loadCases(casePage.value.page)
+  if (tab.value === 'actions') await loadActionPage()
   if (tab.value === 'analyses' || tab.value === 'intake')
     await loadAnalyses(analysisPage.value.page)
   if (tab.value === 'iocs') await loadIocs(iocPage.value.page)
@@ -420,6 +474,8 @@ async function syncRoute() {
   analysisStatus.value = section === 'analyses' ? String(route.query.status || '') : ''
   selected.value = null
   report.value = null
+  reportView.value = 'message'
+  caseView.value = 'investigation'
   occurrences.value = null
   selectedIoc.value = null
   const page = Math.max(1, Number(route.query.page || 1))
@@ -627,7 +683,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="phishcase">
+  <div class="phishcase folio-shell">
     <div class="language-switch">
       <label
         >{{ t('Langue') }}
@@ -638,11 +694,26 @@ onUnmounted(() => {
       >
     </div>
     <div v-if="!ready" class="login-shell">{{ t('Chargement de PhishCase…') }}</div>
-    <div v-else-if="!user" class="login-shell">
-      <form class="login-card" @submit.prevent="mfaRequired ? verifyMfa() : login()">
-        <div class="brand-icon">P<span>↗</span></div>
+    <div v-else-if="!user" class="login-shell folio-auth">
+      <section class="folio-auth-brand">
+        <p class="folio-brand">PhishCase</p>
+        <p class="folio-meta">INVESTIGATION / EMAIL</p>
+        <h1>{{ t('Chaque message mérite une lecture attentive.') }}</h1>
+        <p>
+          {{
+            t(
+              'Du premier signalement à la décision argumentée. Votre espace d’investigation et votre équipe.'
+            )
+          }}
+        </p>
+      </section>
+      <form
+        class="login-card folio-auth-form"
+        @submit.prevent="mfaRequired ? verifyMfa() : login()"
+      >
+        <p class="folio-reference">PHISHCASE / {{ t('Identification') }}</p>
         <p class="eyebrow">{{ t('EMAIL INVESTIGATION WORKSPACE') }}</p>
-        <h1>PhishCase<span>.</span></h1>
+        <h1>{{ t('Ouvrir votre espace') }}</h1>
         <p class="muted">{{ t('Des emails suspects aux dossiers résolus.') }}</p>
         <template v-if="!mfaRequired">
           <label>
@@ -708,11 +779,12 @@ onUnmounted(() => {
       </form>
     </div>
     <div v-else class="workspace">
-      <aside class="sidebar" @keydown.esc="closeMobileMenu">
+      <aside class="sidebar folio-mast" @keydown.esc="closeMobileMenu">
         <div class="sidebar-heading">
           <a href="/" class="brand" @click.exact.prevent="navigate('intake')"
-            ><span class="brand-icon">P<span>↗</span></span
-            >PhishCase<span class="brand-dot">.</span></a
+            ><span class="folio-mark" aria-hidden="true">P</span>PhishCase<span class="brand-dot"
+              >.</span
+            ></a
           >
           <button
             ref="mobileMenuButton"
@@ -733,21 +805,28 @@ onUnmounted(() => {
           <p class="eyebrow">{{ t('ESPACE D’INVESTIGATION') }}</p>
           <nav>
             <button
-              v-for="[id, label] in tabs"
+              v-for="[id, label] in primaryTabs"
               :key="id"
               :class="{ active: tab === id }"
+              :aria-current="tab === id ? 'page' : undefined"
               @click="navigate(id!)"
             >
               <span class="nav-symbol">{{ navIcons[id!] }}</span
               >{{ label
               }}<span v-if="id === 'cases'" class="count">{{ dashboard?.open_cases || 0 }}</span>
             </button>
-            <a
-              v-for="link in extensions.navigation"
-              :key="link.url"
-              class="extension-nav"
-              :href="link.url"
-              ><span class="nav-symbol">↗</span>{{ t(link.label) }}</a
+            <ActionMenu
+              label="Explorer"
+              class="nav-explorer"
+              :class="{ active: explorerTabs.some(([id]) => id === tab) }"
+              ><button
+                v-for="[id, label] in explorerTabs"
+                :key="id"
+                class="menu-item"
+                @click="navigate(id!)"
+              >
+                {{ label }}
+              </button></ActionMenu
             >
           </nav>
           <div class="sidebar-bottom">
@@ -756,25 +835,38 @@ onUnmounted(() => {
               <strong>{{ user.username }}</strong
               ><small>{{ labels[user.role] }}</small>
             </div>
-            <button :title="t('Déconnexion')" :aria-label="t('Déconnexion')" @click="logout">
-              ↪
-            </button>
+            <ActionMenu label="Profil" class="profile-menu"
+              ><button
+                v-for="[id, label] in accountTabs"
+                :key="id"
+                class="menu-item"
+                @click="navigate(id!)"
+              >
+                {{ label }}</button
+              ><a
+                v-for="link in extensions.navigation"
+                :key="link.url"
+                class="menu-item"
+                :href="link.url"
+                >{{ t(link.label) }}</a
+              ><button class="menu-item" @click="logout">{{ t('Déconnexion') }}</button></ActionMenu
+            >
           </div>
         </div>
       </aside>
-      <main>
+      <main class="folio-main">
         <header>
           <span>
             {{ t('WORKSPACE') }} <span class="slash">/</span>
             {{ tabs.find((t) => t[0] === tab)?.[1] }}</span
           >
-          <div class="live"><i></i> {{ t('Équipe connectée') }}</div>
+          <div class="folio-reference">{{ user.username }} / {{ labels[user.role] }}</div>
         </header>
         <div class="content">
           <div v-if="error" class="error" role="alert">
             {{ error }} <button @click="error = ''" :aria-label="t('Fermer l’erreur')">×</button>
           </div>
-          <div class="page-heading">
+          <div class="page-heading folio-heading">
             <div>
               <p class="eyebrow">
                 {{
@@ -812,6 +904,61 @@ onUnmounted(() => {
               {{ t('↻ Actualiser') }}
             </button>
           </div>
+          <TaskGuide :task="report ? 'decision' : tab" />
+          <IntelligenceWorkspace
+            v-if="tab === 'intelligence'"
+            :request="api"
+            :can-write="!!writer"
+          />
+          <section v-if="tab === 'actions'" class="panel">
+            <div class="folio-tabs">
+              <button
+                :class="{ active: actionScope === 'mine' }"
+                @click="changeActionScope('mine')"
+              >
+                {{ t('Mes actions') }}</button
+              ><button
+                :class="{ active: actionScope === 'team' }"
+                @click="changeActionScope('team')"
+              >
+                {{ t('Équipe') }}
+              </button>
+            </div>
+            <table v-responsive-table>
+              <thead>
+                <tr>
+                  <th>{{ t('Action') }}</th>
+                  <th>{{ t('Dossier') }}</th>
+                  <th>{{ t('Responsable') }}</th>
+                  <th>{{ t('Échéance') }}</th>
+                  <th>{{ t('Statut') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in actionRows" :key="item.id">
+                  <td>
+                    <a
+                      :href="'/cases/' + item.case_id"
+                      @click="followLink($event, '/cases/' + item.case_id)"
+                      >{{ item.title }}</a
+                    >
+                  </td>
+                  <td>#{{ item.case_id }}</td>
+                  <td>{{ item.owner || t('Non assigné') }}</td>
+                  <td>{{ item.due_date || '—' }}</td>
+                  <td>
+                    <span class="badge">{{ t(actionNames[item.status] || item.status) }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="!actionRows.length" class="empty">{{ t('Aucune action à suivre.') }}</p>
+            <PaginationControls
+              v-bind="actionPage"
+              :busy="busy"
+              @change="(p) => act(() => loadActionPage(p))"
+            />
+          </section>
           <EnrichmentResults
             v-if="tab === 'integrations'"
             :request="api"
@@ -830,6 +977,57 @@ onUnmounted(() => {
             @open="openReport"
             @case="openCase"
           />
+          <div v-if="tab === 'intake'" class="reception-ledger">
+            <section class="panel">
+              <div class="panel-title">
+                <h2>{{ t('Messages reçus') }}</h2>
+                <button class="text-link" @click="navigate('analyses')">
+                  {{ t('Toutes les analyses') }} →
+                </button>
+              </div>
+              <p v-if="!analyses.length" class="empty">
+                {{ t('Déposez votre premier message pour commencer.') }}
+              </p>
+              <a
+                v-for="a in analyses.slice(0, 8)"
+                :key="a.id"
+                :href="'/analyses/' + a.id"
+                class="case-row"
+                @click="followLink($event, '/analyses/' + a.id)"
+                ><div>
+                  <strong>{{ a.subject || a.filename }}</strong
+                  ><small>{{ a.filename }} · {{ formatDate(a.created_at) }}</small>
+                </div>
+                <span class="badge" :data-state="a.status">{{ labels[a.status] }}</span
+                ><span>↗</span></a
+              >
+            </section>
+            <section class="panel reception-note">
+              <p class="eyebrow">{{ t('Mes investigations') }}</p>
+              <h2>{{ t('Reprendre un dossier') }}</h2>
+              <p class="small muted">
+                {{
+                  t('Vos dossiers, vos décisions. Les indices se lisent à l’échelle de l’équipe.')
+                }}
+              </p>
+              <a
+                v-for="c in cases.slice(0, 5)"
+                :key="c.id"
+                :href="'/cases/' + c.id"
+                class="case-row"
+                @click="followLink($event, '/cases/' + c.id)"
+                ><div>
+                  <span class="folio-reference">PC-{{ c.id }}</span
+                  ><strong>{{ c.title }}</strong
+                  ><small
+                    >{{ labels[c.status] }} · {{ c.analysis_count }} {{ t('Analyses') }}</small
+                  >
+                </div></a
+              ><button class="text-link" @click="navigate('cases')">
+                {{ t('Mes dossiers') }} →
+              </button>
+            </section>
+          </div>
           <section v-if="report" ref="reportElement" class="panel report">
             <div class="panel-title">
               <h2>{{ report.subject || report.filename }}</h2>
@@ -851,20 +1049,6 @@ onUnmounted(() => {
                 }}</a>
                 <button class="menu-item" @click="navigate('analyses')">{{ t('Fermer') }}</button>
               </ActionMenu>
-            </div>
-            <div
-              v-if="report.assessment"
-              class="assessment-banner"
-              :data-state="report.assessment.level"
-              role="status"
-            >
-              <h2>{{ t('Résultats automatiques') }} · {{ t(report.assessment.label) }}</h2>
-              <p>{{ t(report.assessment.explanation) }}</p>
-              <p v-if="report.assessment.missing_engines.length" class="small">
-                {{ t('Contrôles sans résultat :') }}
-                {{ report.assessment.missing_engines.join(', ') }}
-              </p>
-              <small>{{ t(report.assessment.scope) }}</small>
             </div>
             <a
               class="text-link"
@@ -893,7 +1077,6 @@ onUnmounted(() => {
                 t('Analyse côté serveur. Vous pouvez fermer cet onglet ; le traitement continue.')
               }}
             </p>
-            <AnalystDecision :analysis-id="report.id" :request="api" :can-write="!!writer" />
             <a
               class="text-link"
               :href="'/api/workspace/analyses/' + report.id + '/source'"
@@ -901,28 +1084,126 @@ onUnmounted(() => {
             >
               {{ t('Télécharger le fichier original →') }}
             </a>
+            <nav class="folio-tabs" aria-label="Lecture du message">
+              <button
+                v-for="[id, label] in [
+                  ['message', 'Message'],
+                  ['indices', 'Indices et corrélations'],
+                  ['technique', 'Enrichissements et technique'],
+                  ['followup', 'Réponse et actions']
+                ]"
+                :key="id"
+                :class="{ active: reportView === id }"
+                @click="reportView = id!"
+              >
+                {{ t(label!) }}
+              </button>
+            </nav>
             <EnrichmentResults
-              v-if="report.result"
+              v-if="report.result && reportView === 'technique'"
               :analysis-id="report.id"
               :result="report.result"
               :request="api"
               :can-write="!!writer"
             />
             <InvestigationContext
-              v-if="report.result"
+              v-if="report.result && reportView === 'indices'"
               :analysis-id="report.id"
               :result="report.result"
               :request="api"
             />
-            <div v-if="emailReport" class="email-report">
-              <dl>
-                <dt>{{ t('Expéditeur') }}</dt>
-                <dd>{{ emailReport.eml.header.from_ }}</dd>
-                <dt>{{ t('Destinataires') }}</dt>
-                <dd>{{ emailReport.eml.header.to.join(', ') }}</dd>
-                <dt>{{ t('Date du message') }}</dt>
-                <dd>{{ emailReport.eml.header.date || t('Non renseignée') }}</dd>
-              </dl>
+            <div
+              v-if="reportView !== 'followup'"
+              class="report-columns"
+              :class="{ 'decision-only': reportView !== 'message' }"
+            >
+              <div
+                v-if="emailReport && reportView === 'message'"
+                class="email-report neutralized-message"
+              >
+                <p class="folio-reference">01 / {{ t('Message neutralisé') }}</p>
+                <dl>
+                  <dt>{{ t('Expéditeur') }}</dt>
+                  <dd>{{ emailReport.eml.header.from_ }}</dd>
+                  <dt>{{ t('Destinataires') }}</dt>
+                  <dd>{{ emailReport.eml.header.to.join(', ') }}</dd>
+                  <dt>{{ t('Date du message') }}</dt>
+                  <dd>{{ emailReport.eml.header.date || t('Non renseignée') }}</dd>
+                </dl>
+                <h2>{{ t('Contenu de l’email') }}</h2>
+                <details
+                  v-for="body in readableBodies"
+                  :key="body.index"
+                  :open="body.index === 0 || body.content_type === 'text/plain'"
+                >
+                  <summary>
+                    {{ body.content_type || t('Texte') }} {{ t('· partie') }} {{ body.index + 1 }}
+                  </summary>
+                  <pre>{{ body.text }}</pre>
+                </details>
+                <h2>{{ t('Pièces jointes ·') }} {{ emailReport.eml.attachments.length }}</h2>
+                <p class="small muted">
+                  {{
+                    t(
+                      'Le paquet contient l’original et son manifeste. Cochez les pièces jointes à y ajouter ; aucune n’est incluse par défaut.'
+                    )
+                  }}
+                </p>
+                <p class="small muted">
+                  {{ t('Conservées avec cet email dans le dossier #') }} {{ report.case_id }}
+                  {{ t('. Analyse statique Office ; pas d’exécution en sandbox.') }}
+                </p>
+                <article
+                  v-for="(a, index) in emailReport.eml.attachments"
+                  :key="index"
+                  class="note"
+                >
+                  <label class="security-check"
+                    ><input
+                      v-model="selectedEvidenceAttachments"
+                      type="checkbox"
+                      :value="index"
+                    />{{ t('Inclure dans le paquet') }}</label
+                  >
+                  <strong>{{ a.filename }}</strong>
+                  <a
+                    class="text-link attachment-download"
+                    :href="'/api/workspace/analyses/' + report.id + '/attachments/' + index"
+                    download
+                  >
+                    {{ t('Télécharger la pièce jointe') }}
+                  </a>
+                  <p class="small muted">{{ a.mime_type }} · {{ a.size }} {{ t('octets') }}</p>
+                  <p class="hash small">SHA-256 · {{ a.hash.sha256 }}</p>
+                </article>
+              </div>
+              <aside class="decision-column">
+                <div
+                  v-if="report.assessment"
+                  class="assessment-banner"
+                  :data-state="report.assessment.level"
+                  role="status"
+                >
+                  <h2>{{ t('Résultats automatiques') }} · {{ t(report.assessment.label) }}</h2>
+                  <p>{{ t(report.assessment.explanation) }}</p>
+                  <p v-if="report.assessment.missing_engines.length" class="small">
+                    {{ t('Contrôles sans résultat :') }}
+                    {{ report.assessment.missing_engines.join(', ') }}
+                  </p>
+                  <small>{{ t(report.assessment.scope) }}</small>
+                </div>
+                <AnalystDecision :analysis-id="report.id" :request="api" :can-write="!!writer" />
+              </aside>
+            </div>
+            <OperationalFollowup
+              v-if="reportView === 'followup'"
+              :case-id="report.case_id"
+              :analysis-id="report.id"
+              :request="api"
+              :can-write="!!writer"
+              :users="users"
+            />
+            <section v-if="emailReport && reportView === 'technique'" class="panel">
               <h2>{{ t('Résultats des moteurs') }}</h2>
               <p class="small muted" v-if="!emailReport.verdicts.length">
                 {{
@@ -940,48 +1221,8 @@ onUnmounted(() => {
                   {{ d.key }} · {{ d.description }}
                 </p>
               </article>
-              <h2>{{ t('Contenu de l’email') }}</h2>
-              <details
-                v-for="body in readableBodies"
-                :key="body.index"
-                :open="body.content_type === 'text/plain'"
-              >
-                <summary>
-                  {{ body.content_type || t('Texte') }} {{ t('· partie') }} {{ body.index + 1 }}
-                </summary>
-                <pre>{{ body.text }}</pre>
-              </details>
-              <h2>{{ t('Pièces jointes ·') }} {{ emailReport.eml.attachments.length }}</h2>
-              <p class="small muted">
-                {{
-                  t(
-                    'Le paquet contient l’original et son manifeste. Cochez les pièces jointes à y ajouter ; aucune n’est incluse par défaut.'
-                  )
-                }}
-              </p>
-              <p class="small muted">
-                {{ t('Conservées avec cet email dans le dossier #') }} {{ report.case_id }}
-                {{ t('. Analyse statique Office ; pas d’exécution en sandbox.') }}
-              </p>
-              <article v-for="(a, index) in emailReport.eml.attachments" :key="index" class="note">
-                <label class="security-check"
-                  ><input v-model="selectedEvidenceAttachments" type="checkbox" :value="index" />{{
-                    t('Inclure dans le paquet')
-                  }}</label
-                >
-                <strong>{{ a.filename }}</strong>
-                <a
-                  class="text-link attachment-download"
-                  :href="'/api/workspace/analyses/' + report.id + '/attachments/' + index"
-                  download
-                >
-                  {{ t('Télécharger la pièce jointe') }}
-                </a>
-                <p class="small muted">{{ a.mime_type }} · {{ a.size }} {{ t('octets') }}</p>
-                <p class="hash small">SHA-256 · {{ a.hash.sha256 }}</p>
-              </article>
-            </div>
-            <details v-if="report.result">
+            </section>
+            <details v-if="report.result && reportView === 'technique'">
               <summary>{{ t('Résultat complet de l’analyse') }}</summary>
               <pre>{{ JSON.stringify(report.result, null, 2) }}</pre>
             </details>
@@ -1135,95 +1376,133 @@ onUnmounted(() => {
             </form>
             <template v-if="selected">
               <button class="back" @click="closeCase">{{ t('← Tous les dossiers') }}</button>
-              <section class="panel form-grid">
-                <label>
-                  {{ t('Titre') }}
-                  <input v-model="selected.title" :disabled="!writer" maxlength="200" /></label
-                ><label>
-                  {{ t('Description') }}
-                  <textarea v-model="selected.description" :disabled="!writer" rows="3"></textarea>
-                </label>
-                <div class="inline-fields">
-                  <label>
-                    {{ t('Statut') }}
-                    <select v-model="selected.status" :disabled="!writer">
-                      <option
-                        v-for="s in ['open', 'investigating', 'resolved', 'closed']"
-                        :key="s"
-                        :value="s"
-                      >
-                        {{ labels[s] }}
-                      </option>
-                    </select></label
-                  ><label>
-                    {{ t('Priorité') }}
-                    <select v-model="selected.priority" :disabled="!writer">
-                      <option
-                        v-for="s in ['low', 'medium', 'high', 'critical']"
-                        :key="s"
-                        :value="s"
-                      >
-                        {{ labels[s] }}
-                      </option>
-                    </select></label
-                  ><label>
-                    {{ t('Responsable') }}
-                    <select v-model="selected.assignee_id" :disabled="!writer">
-                      <option :value="null">{{ t('Non assigné') }}</option>
-                      <option
-                        v-for="u in users.filter((u) => u.active && u.role !== 'viewer')"
-                        :key="u.id"
-                        :value="u.id"
-                      >
-                        {{ u.username }}
-                      </option>
-                    </select></label
-                  >
-                </div>
-                <div v-if="writer">
-                  <button class="primary" :disabled="busy" @click="saveCase">
-                    {{ t('Enregistrer') }}
-                  </button>
-                </div>
-              </section>
-              <section class="panel">
-                <div class="panel-title">
-                  <h2>{{ t('Analyses du dossier') }}</h2>
-                  <label v-if="writer" class="upload-button"
-                    >{{ uploading ? t('Envoi en cours…') : '+ ' + t('Analyser un email')
-                    }}<input type="file" accept=".eml,.msg" :disabled="uploading" @change="upload"
-                  /></label>
-                </div>
-                <p class="small muted">
-                  {{
-                    t(
-                      'EML / MSG · 20 Mo maximum · Le résultat et les IOC sont conservés dans le dossier.'
-                    )
-                  }}
-                </p>
-                <p v-if="!caseAnalyses.length" class="empty">
-                  {{ t('Aucun email analysé pour ce dossier.') }}
-                </p>
-                <a
-                  v-for="a in caseAnalyses"
-                  :key="a.id"
-                  class="case-row"
-                  :href="'/analyses/' + a.id"
-                  @click="followLink($event, '/analyses/' + a.id)"
+              <nav class="folio-tabs" aria-label="Dossier">
+                <button
+                  v-for="[id, label] in [
+                    ['investigation', 'Investigation'],
+                    ['followup', 'Réponse et actions'],
+                    ['intelligence', 'Renseignement'],
+                    ['journal', 'Notes et chronologie']
+                  ]"
+                  :key="id"
+                  :class="{ active: caseView === id }"
+                  @click="caseView = id!"
                 >
-                  <div>
-                    <strong>{{ a.subject || a.filename }}</strong
-                    ><small>{{ a.filename }} · {{ formatDate(a.created_at) }}</small>
+                  {{ t(label!) }}
+                </button>
+              </nav>
+              <div v-show="caseView === 'investigation'">
+                <section class="panel form-grid">
+                  <label>
+                    {{ t('Titre') }}
+                    <input v-model="selected.title" :disabled="!writer" maxlength="200" /></label
+                  ><label>
+                    {{ t('Description') }}
+                    <textarea
+                      v-model="selected.description"
+                      :disabled="!writer"
+                      rows="3"
+                    ></textarea>
+                  </label>
+                  <div class="inline-fields">
+                    <label>
+                      {{ t('Statut') }}
+                      <select v-model="selected.status" :disabled="!writer">
+                        <option
+                          v-for="s in ['open', 'investigating', 'resolved', 'closed']"
+                          :key="s"
+                          :value="s"
+                        >
+                          {{ labels[s] }}
+                        </option>
+                      </select></label
+                    ><label>
+                      {{ t('Priorité') }}
+                      <select v-model="selected.priority" :disabled="!writer">
+                        <option
+                          v-for="s in ['low', 'medium', 'high', 'critical']"
+                          :key="s"
+                          :value="s"
+                        >
+                          {{ labels[s] }}
+                        </option>
+                      </select></label
+                    ><label>
+                      {{ t('Responsable') }}
+                      <select v-model="selected.assignee_id" :disabled="!writer">
+                        <option :value="null">{{ t('Non assigné') }}</option>
+                        <option
+                          v-for="u in users.filter((u) => u.active && u.role !== 'viewer')"
+                          :key="u.id"
+                          :value="u.id"
+                        >
+                          {{ u.username }}
+                        </option>
+                      </select></label
+                    >
                   </div>
-                  <span class="badge" :data-state="a.status">{{ labels[a.status] }}</span
-                  ><span>↗</span></a
-                ><PaginationControls
-                  v-bind="scopedAnalyses"
-                  :busy="busy"
-                  @change="(p) => act(() => loadCaseAnalyses(p))"
-                />
-              </section>
-              <div class="dashboard-grid">
+                  <div v-if="writer">
+                    <button class="primary" :disabled="busy" @click="saveCase">
+                      {{ t('Enregistrer') }}
+                    </button>
+                  </div>
+                </section>
+                <section class="panel">
+                  <div class="panel-title">
+                    <h2>{{ t('Analyses du dossier') }}</h2>
+                    <label v-if="writer" class="upload-button"
+                      >{{ uploading ? t('Envoi en cours…') : '+ ' + t('Analyser un email')
+                      }}<input
+                        type="file"
+                        accept=".eml,.msg"
+                        :disabled="uploading"
+                        @change="upload"
+                    /></label>
+                  </div>
+                  <p class="small muted">
+                    {{
+                      t(
+                        'EML / MSG · 20 Mo maximum · Le résultat et les IOC sont conservés dans le dossier.'
+                      )
+                    }}
+                  </p>
+                  <p v-if="!caseAnalyses.length" class="empty">
+                    {{ t('Aucun email analysé pour ce dossier.') }}
+                  </p>
+                  <a
+                    v-for="a in caseAnalyses"
+                    :key="a.id"
+                    class="case-row"
+                    :href="'/analyses/' + a.id"
+                    @click="followLink($event, '/analyses/' + a.id)"
+                  >
+                    <div>
+                      <strong>{{ a.subject || a.filename }}</strong
+                      ><small>{{ a.filename }} · {{ formatDate(a.created_at) }}</small>
+                    </div>
+                    <span class="badge" :data-state="a.status">{{ labels[a.status] }}</span
+                    ><span>↗</span></a
+                  ><PaginationControls
+                    v-bind="scopedAnalyses"
+                    :busy="busy"
+                    @change="(p) => act(() => loadCaseAnalyses(p))"
+                  />
+                </section>
+              </div>
+              <OperationalFollowup
+                v-if="caseView === 'followup'"
+                :case-id="selected.id"
+                :request="api"
+                :can-write="!!writer"
+                :users="users"
+              />
+              <IntelligenceWorkspace
+                v-if="caseView === 'intelligence'"
+                :case-id="selected.id"
+                :request="api"
+                :can-write="!!writer"
+              />
+              <div v-if="caseView === 'journal'" class="dashboard-grid">
                 <section class="panel">
                   <h2>{{ t('Notes d’investigation') }}</h2>
                   <form v-if="writer" @submit.prevent="addNote">
@@ -1262,8 +1541,15 @@ onUnmounted(() => {
                 </section>
               </div>
             </template>
-            <template v-else
-              ><form class="filters" @submit.prevent="listPage(1)">
+            <template v-else>
+              <div class="folio-tabs">
+                <button :class="{ active: caseScope === 'mine' }" @click="changeCaseScope('mine')">
+                  {{ t('Mes dossiers') }}</button
+                ><button :class="{ active: caseScope === 'team' }" @click="changeCaseScope('team')">
+                  {{ t('Équipe') }}
+                </button>
+              </div>
+              <form class="filters" @submit.prevent="listPage(1)">
                 <input
                   v-model="query"
                   :aria-label="t('Rechercher un dossier')"
@@ -1572,4 +1858,6 @@ onUnmounted(() => {
 
 <style>
 @import url('../workspace.css');
+@import url('../design/folio.css');
+@import url('../folio-workspace.css');
 </style>

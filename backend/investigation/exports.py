@@ -52,6 +52,27 @@ def report_document(analysis_id, user):
                 (document["case_id"],),
             )
         ]
+        document["actions"] = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT a.*,u.username AS owner FROM case_actions a LEFT JOIN users u ON u.id=a.owner_id WHERE a.case_id=? ORDER BY a.id",
+                (document["case_id"],),
+            )
+        ]
+        document["reporter_replies"] = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT * FROM reporter_replies WHERE analysis_id=? ORDER BY id",
+                (analysis_id,),
+            )
+        ]
+        document["intelligence"] = [
+            dict(row)
+            for row in conn.execute(
+                "SELECT * FROM intelligence_links WHERE case_id=? ORDER BY id",
+                (document["case_id"],),
+            )
+        ]
     return document
 
 
@@ -111,7 +132,7 @@ def rendered_report(document, locale="en"):  # noqa: C901 - linear report sectio
     parts = [
         "<!doctype html><html lang='"
         + locale
-        + "'><meta charset='utf-8'><meta name='referrer' content='no-referrer'><title>PhishCase report</title><style>body{font:16px system-ui;color:#14283a;max-width:960px;margin:40px auto;padding:24px}table{border-collapse:collapse;width:100%}th,td{padding:8px;text-align:left;border-bottom:1px solid #ddd;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere}h2{margin-top:32px}</style><h1>PhishCase · "
+        + "'><meta charset='utf-8'><meta name='referrer' content='no-referrer'><title>PhishCase report</title><style>body{font:14px system-ui;color:#262925;background:#F1F0E9;max-width:960px;margin:40px auto;padding:24px}table{border-collapse:collapse;width:100%}th,td{padding:12px;text-align:left;border-bottom:1px solid #CDCEC3;overflow-wrap:anywhere}th{font-weight:400;color:#676D64;width:28%}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#FAFAF6;padding:20px}h1{font-size:36px;font-weight:400;letter-spacing:-1px}h2{margin-top:32px;border-top:1px solid #262925;padding-top:20px;font-weight:400}</style><h1>PhishCase · "
         + tr("Investigation report", "Rapport d'investigation")
         + "</h1>"
     ]
@@ -298,6 +319,40 @@ def rendered_report(document, locale="en"):  # noqa: C901 - linear report sectio
             ],
         )
     )
+    for key, title, fields in (
+        (
+            "actions",
+            tr("Operational actions", "Actions opérationnelles"),
+            ("title", "owner", "due_date", "status", "proof", "updated_at"),
+        ),
+        (
+            "reporter_replies",
+            tr(
+                "Reporter replies — transport acceptance only",
+                "Réponses au signalant — acceptation transport uniquement",
+            ),
+            ("recipient", "subject", "body", "status", "accepted_at"),
+        ),
+        (
+            "intelligence",
+            tr(
+                "Sourced intelligence — analyst hypotheses",
+                "Renseignement sourcé — hypothèses analystes",
+            ),
+            (
+                "title",
+                "source",
+                "facts",
+                "counter_evidence",
+                "hypothesis",
+                "confidence",
+                "observed_at",
+            ),
+        ),
+    ):
+        parts.append("<h2>" + escape(title) + "</h2>")
+        for item in document.get(key, []):
+            parts.append(table([(field, item.get(field)) for field in fields]))
     parts.append(
         "<p>"
         + tr(
