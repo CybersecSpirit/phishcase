@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, Request, status
 from redis.asyncio import Redis
 
 from backend import clients, settings
+from backend.investigation.connectivity import lookups_allowed, mode
 
 
 def get_optional_redis(request: Request) -> Redis | None:
@@ -25,7 +26,7 @@ def get_required_redis(
 
 
 async def get_optional_vt() -> typing.AsyncIterator[clients.VirusTotal | None]:
-    if settings.VIRUSTOTAL_API_KEY:
+    if lookups_allowed() and settings.VIRUSTOTAL_API_KEY:
         async with clients.VirusTotal(
             apikey=str(settings.VIRUSTOTAL_API_KEY)
         ) as client:
@@ -35,7 +36,7 @@ async def get_optional_vt() -> typing.AsyncIterator[clients.VirusTotal | None]:
 
 
 async def get_optional_urlscan() -> typing.AsyncIterator[clients.UrlScan | None]:
-    if settings.URLSCAN_API_KEY:
+    if lookups_allowed() and settings.URLSCAN_API_KEY:
         async with clients.UrlScan(api_key=settings.URLSCAN_API_KEY) as client:
             yield client
     else:
@@ -43,7 +44,7 @@ async def get_optional_urlscan() -> typing.AsyncIterator[clients.UrlScan | None]
 
 
 async def get_optional_email_rep() -> typing.AsyncIterator[clients.EmailRep | None]:
-    if settings.EMAIL_REP_API_KEY:
+    if lookups_allowed() and settings.EMAIL_REP_API_KEY:
         async with clients.EmailRep(api_key=settings.EMAIL_REP_API_KEY) as client:
             yield client
     else:
@@ -51,6 +52,12 @@ async def get_optional_email_rep() -> typing.AsyncIterator[clients.EmailRep | No
 
 
 def get_spam_assassin() -> clients.SpamAssassin | None:
+    if mode() == "offline" and settings.SPAMASSASSIN_HOST not in {
+        "127.0.0.1",
+        "::1",
+        "localhost",
+    }:
+        return None
     if settings.SPAMASSASSIN_HOST:
         return clients.SpamAssassin(
             host=settings.SPAMASSASSIN_HOST,

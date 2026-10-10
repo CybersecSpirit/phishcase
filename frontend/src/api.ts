@@ -3,7 +3,11 @@ import { ResponseSchema, type ResponseType, StatusSchema, type StatusType } from
 export class FetchError extends Error {
   public response?: { data: unknown }
 
-  constructor(message: string, data?: unknown) {
+  constructor(
+    message: string,
+    data?: unknown,
+    public status?: number
+  ) {
     super(message)
     this.name = 'FetchError'
     if (data !== undefined) {
@@ -20,7 +24,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
     } catch {
       // no JSON body
     }
-    throw new FetchError(res.statusText, data)
+    throw new FetchError(res.statusText, data, res.status)
   }
   return res.json()
 }

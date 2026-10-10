@@ -6,6 +6,7 @@ from loguru import logger
 
 from backend import clients, schemas, types
 from backend.factories.dkim_ import DKIMVerdictFactory
+from backend.investigation.connectivity import lookups_allowed
 
 from .abstract import AbstractAsyncFactory
 from .emailrep import EmailRepVerdictFactory
@@ -17,7 +18,7 @@ from .virustotal import VirusTotalVerdictFactory
 
 
 def log_exception(exception: Exception):
-    logger.exception(exception)
+    logger.warning("Analysis engine unavailable: {}", type(exception).__name__)
 
 
 def parse(eml_file: bytes) -> schemas.Response:
@@ -101,8 +102,13 @@ async def set_verdicts(
 ) -> schemas.Response:
     tasks = [
         partial(get_oleid_verdict, attachments=response.eml.attachments),
-        partial(get_dkim_verdict, eml_file=eml_file, eml=response.eml),
+
     ]
+
+    if lookups_allowed():
+        tasks.append(partial(get_dkim_verdict, eml_file=eml_file, eml=response.eml))
+    else:
+        optional_email_rep = optional_vt = optional_urlscan = None
 
     if optional_spam_assassin:
         tasks.append(

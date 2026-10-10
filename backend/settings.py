@@ -1,3 +1,4 @@
+import os
 import sys
 
 from starlette.config import Config
@@ -6,18 +7,22 @@ from starlette.datastructures import Secret
 from .datastructures import DatabaseURL
 
 try:
-    config = Config(".env")
+    config = (
+        Config()
+        if os.environ.get("PHISHCASE_DISABLE_DOTENV") == "true"
+        else Config(".env")
+    )
 except Exception:
     config = Config()
 
-PROJECT_NAME: str = config("PROJECT_NAME", default="eml_analyzer")
+PROJECT_NAME: str = config("PROJECT_NAME", default="PhishCase")
 
 DEBUG: bool = config("DEBUG", cast=bool, default=False)
 TESTING: bool = config("TESTING", cast=bool, default=False)
 
 LOG_FILE = config("LOG_FILE", default=sys.stderr)
-LOG_LEVEL: str = config("LOG_LEVEL", cast=str, default="DEBUG")
-LOG_BACKTRACE: bool = config("LOG_BACKTRACE", cast=bool, default=True)
+LOG_LEVEL: str = config("LOG_LEVEL", cast=str, default="INFO")
+LOG_BACKTRACE: bool = config("LOG_BACKTRACE", cast=bool, default=False)
 
 # Spam Assassin
 SPAMASSASSIN_HOST: str = config("SPAMASSASSIN_HOST", cast=str, default="127.0.0.1")

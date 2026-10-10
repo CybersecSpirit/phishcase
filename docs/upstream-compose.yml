@@ -1,0 +1,35 @@
+# Historical reference; PhishCase uses the root Compose.
+services:
+  spamassassin:
+    image: instantlinux/spamassassin:4.0.1-5
+    platform: linux/x86_64
+    ports:
+      - 127.0.0.1:${SPAMASSASSIN_PORT:-7783}:783
+    restart: always
+
+  redis:
+    image: "redis/redis-stack:7.4.0-v8"
+    restart: always
+    ports:
+      - 127.0.0.1:${REDIS_PORT:-6379}:6379
+      - 127.0.0.1:${REDIS_INSIGHT_PORT:-8001}:8001
+    volumes:
+      - redis-data:/data
+
+  eml_analyzer:
+    build:
+      context: ../
+      dockerfile: app.Dockerfile
+    ports:
+      - 127.0.0.1:${PORT:-8000}:8000
+    environment:
+      - SPAMASSASSIN_HOST=spamassassin
+      - SPAMASSASSIN_PORT=${SPAMASSASSIN_PORT:-7783}
+      - REDIS_URL=redis://redis:${REDIS_PORT:-6379}
+    restart: always
+    depends_on:
+      - spamassassin
+      - redis
+
+volumes:
+  redis-data:

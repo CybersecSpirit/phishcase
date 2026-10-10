@@ -1,7 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import AccountSecurity from '@/components/AccountSecurity.vue'
+import { setLocale } from '@/i18n'
+
+beforeEach(() => {
+  localStorage.setItem('phishcase.locale.1', 'fr')
+  setLocale('fr')
+})
 
 describe('Account security', () => {
   it('requires enrollment confirmation then shows recovery codes once', async () => {

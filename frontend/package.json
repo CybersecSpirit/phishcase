@@ -1,5 +1,5 @@
 {
-  "name": "eml_analyzer",
+  "name": "phishcase-community",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -66,5 +66,8 @@
     "vite-plugin-vue-devtools": "^8.1.5",
     "vitest": "^4.1.11",
     "vue-tsc": "3.3.7"
+  },
+  "engines": {
+    "node": ">=24.15.0"
   }
 }

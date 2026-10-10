@@ -33,7 +33,9 @@ class EnrichmentPolicyTests(unittest.IsolatedAsyncioTestCase):
         provider = FakeProvider()
         target = EnrichmentTarget(TargetKind.SHA256, "a" * 64)
         with self.assertRaises(EnrichmentDisabled):
-            await lookup(provider, target, EnrichmentPolicy(online=False, external_lookups=True))
+            await lookup(
+                provider, target, EnrichmentPolicy(online=False, external_lookups=True)
+            )
         self.assertEqual(provider.lookups, 0)
 
     async def test_lookup_does_not_require_submission_permission(self):
@@ -55,7 +57,9 @@ class EnrichmentPolicyTests(unittest.IsolatedAsyncioTestCase):
             await submit(
                 provider,
                 target,
-                EnrichmentPolicy(online=True, external_lookups=True, file_submission=False),
+                EnrichmentPolicy(
+                    online=True, external_lookups=True, file_submission=False
+                ),
                 content=b"sample",
             )
         self.assertEqual(provider.submissions, 0)

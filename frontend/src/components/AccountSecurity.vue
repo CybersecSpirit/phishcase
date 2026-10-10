@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
+import { errorMessage } from '@/errors'
+import { t } from '@/i18n'
+
 const props = defineProps<{
   request: <T>(path: string, method?: string, data?: unknown) => Promise<T>
 }>()
@@ -23,7 +26,7 @@ async function run(action: () => Promise<void>) {
   try {
     await action()
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Erreur inattendue'
+    error.value = errorMessage(e)
   } finally {
     busy.value = false
   }
@@ -68,7 +71,7 @@ async function manage() {
       'POST',
       { password: password.value, code: code.value }
     )
-    message.value = operation.value === 'disable' ? 'Le MFA est désactivé.' : ''
+    message.value = operation.value === 'disable' ? t('Le MFA est désactivé.') : ''
     operation.value = null
     password.value = ''
     code.value = ''
@@ -85,7 +88,10 @@ function cancelOperation() {
 function downloadCodes() {
   const blob = new Blob(
     [
-      'PhishCase — codes de récupération MFA\nChaque code est utilisable une seule fois, avec votre mot de passe.\n\n' +
+      t('PhishCase — codes de récupération MFA') +
+        '\n' +
+        t('Chaque code est utilisable une seule fois, avec votre mot de passe.') +
+        '\n\n' +
         recovery.value.join('\n') +
         '\n'
     ],
@@ -104,59 +110,72 @@ onMounted(() => run(refresh))
 <template>
   <section class="panel security-panel">
     <div class="panel-title">
-      <h2>Authentification multifacteur</h2>
+      <h2>{{ t('Authentification multifacteur') }}</h2>
       <span v-if="loaded" class="badge" :data-state="enabled ? 'benign' : 'unreviewed'">{{
-        enabled ? 'Activée' : 'Non activée'
+        enabled ? t('Activée') : t('Non activée')
       }}</span>
     </div>
     <p class="muted">
-      Protégez votre compte avec un code généré par votre application d’authentification, en plus de
-      votre mot de passe.
+      {{
+        t(
+          'Protégez votre compte avec un code généré par votre application d’authentification, en plus de votre mot de passe.'
+        )
+      }}
     </p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="message" role="status">{{ message }}</p>
-    <p v-if="!loaded">Chargement…</p>
+    <p v-if="!loaded">{{ t('Chargement…') }}</p>
     <div v-else-if="recovery.length" class="recovery-box">
-      <h3>Conservez vos codes de récupération</h3>
+      <h3>{{ t('Conservez vos codes de récupération') }}</h3>
       <p>
-        Le MFA est actif. Ces 10 codes ne seront affichés qu’une seule fois. Rangez-les dans votre
-        gestionnaire de mots de passe : chacun remplace un code de votre application, une seule
-        fois.
+        {{
+          t(
+            'Le MFA est actif. Ces 10 codes ne seront affichés qu’une seule fois. Rangez-les dans votre gestionnaire de mots de passe : chacun remplace un code de votre application, une seule fois.'
+          )
+        }}
       </p>
-      <p>Si vous quittez cette page sans les sauvegarder, vous devrez en générer de nouveaux.</p>
+      <p>
+        {{
+          t('Si vous quittez cette page sans les sauvegarder, vous devrez en générer de nouveaux.')
+        }}
+      </p>
       <ul class="recovery-codes">
         <li v-for="item in recovery" :key="item">
           <code>{{ item }}</code>
         </li>
       </ul>
-      <button class="secondary" @click="downloadCodes">Télécharger les codes</button>
+      <button class="secondary" @click="downloadCodes">{{ t('Télécharger les codes') }}</button>
       <label class="security-check"
-        ><input v-model="saved" type="checkbox" /> J’ai conservé mes codes en lieu sûr.</label
-      >
-      <button class="primary" :disabled="!saved" @click="recovery = []">Terminer</button>
+        ><input v-model="saved" type="checkbox" /> {{ t('J’ai conservé mes codes en lieu sûr.') }}
+      </label>
+      <button class="primary" :disabled="!saved" @click="recovery = []">{{ t('Terminer') }}</button>
     </div>
     <form v-else-if="setup" class="security-form" @submit.prevent="enable">
-      <h3>Associez votre application</h3>
+      <h3>{{ t('Associez votre application') }}</h3>
       <p>
-        Scannez ce QR code avec Aegis, Google Authenticator, Microsoft Authenticator, 1Password ou
-        une application TOTP compatible. Cette configuration expire après 10 minutes.
+        {{
+          t(
+            'Scannez ce QR code avec Aegis, Google Authenticator, Microsoft Authenticator, 1Password ou une application TOTP compatible. Cette configuration expire après 10 minutes.'
+          )
+        }}
       </p>
       <img
         :src="setup.qr"
-        alt="QR code d’activation MFA à scanner dans votre application"
+        :alt="t('QR code d’activation MFA à scanner dans votre application')"
         class="mfa-qr"
         width="240"
         height="240"
       />
       <details>
-        <summary>Saisir la clé manuellement</summary>
+        <summary>{{ t('Saisir la clé manuellement') }}</summary>
         <p class="hash">
           <code>{{ setup.secret }}</code>
         </p>
-        <p class="small muted">TOTP · 6 chiffres · 30 secondes · SHA-1</p>
+        <p class="small muted">{{ t('TOTP · 6 chiffres · 30 secondes · SHA-1') }}</p>
       </details>
-      <label
-        >Code de l’application<input
+      <label>
+        {{ t('Code de l’application') }}
+        <input
           v-model="code"
           inputmode="numeric"
           autocomplete="one-time-code"
@@ -165,47 +184,59 @@ onMounted(() => run(refresh))
           required
       /></label>
       <div class="security-actions">
-        <button class="primary" :disabled="busy">Activer le MFA</button
-        ><button type="button" class="secondary" :disabled="busy" @click="cancel">Annuler</button>
+        <button class="primary" :disabled="busy">{{ t('Activer le MFA') }}</button
+        ><button type="button" class="secondary" :disabled="busy" @click="cancel">
+          {{ t('Annuler') }}
+        </button>
       </div>
     </form>
     <form v-else-if="!enabled" class="security-form" @submit.prevent="begin">
       <p>
-        L’activation sera effective après vérification d’un premier code. Vos autres sessions seront
-        alors déconnectées.
+        {{
+          t(
+            'L’activation sera effective après vérification d’un premier code. Vos autres sessions seront alors déconnectées.'
+          )
+        }}
       </p>
-      <label
-        >Mot de passe actuel<input
+      <label>
+        {{ t('Mot de passe actuel') }}
+        <input
           v-model="password"
           type="password"
           autocomplete="current-password"
           required
           maxlength="256"
       /></label>
-      <button class="primary" :disabled="busy">Configurer le MFA</button>
+      <button class="primary" :disabled="busy">{{ t('Configurer le MFA') }}</button>
     </form>
     <form v-else-if="operation" class="security-form" @submit.prevent="manage">
       <h3>
-        {{ operation === 'disable' ? 'Désactiver le MFA' : 'Renouveler les codes de récupération' }}
+        {{
+          operation === 'disable'
+            ? t('Désactiver le MFA')
+            : t('Renouveler les codes de récupération')
+        }}
       </h3>
       <p>
         {{
           operation === 'disable'
-            ? 'Votre compte sera accessible avec votre mot de passe seul.'
-            : 'Tous vos anciens codes de récupération seront invalidés.'
+            ? t('Votre compte sera accessible avec votre mot de passe seul.')
+            : t('Tous vos anciens codes de récupération seront invalidés.')
         }}
-        Vos autres sessions seront déconnectées.
+        {{ t('Vos autres sessions seront déconnectées.') }}
       </p>
-      <label
-        >Mot de passe actuel<input
+      <label>
+        {{ t('Mot de passe actuel') }}
+        <input
           v-model="password"
           type="password"
           autocomplete="current-password"
           required
           maxlength="256"
       /></label>
-      <label
-        >Code de l’application ou de récupération<input
+      <label>
+        {{ t('Code de l’application ou de récupération') }}
+        <input
           v-model="code"
           autocomplete="one-time-code"
           required
@@ -213,31 +244,34 @@ onMounted(() => run(refresh))
           spellcheck="false"
       /></label>
       <p class="small muted">
-        Un code de l’application déjà utilisé est refusé : attendez le code suivant.
+        {{ t('Un code de l’application déjà utilisé est refusé : attendez le code suivant.') }}
       </p>
       <div class="security-actions">
         <button class="primary" :disabled="busy">
           {{
-            operation === 'disable' ? 'Confirmer la désactivation' : 'Générer de nouveaux codes'
+            operation === 'disable'
+              ? t('Confirmer la désactivation')
+              : t('Générer de nouveaux codes')
           }}</button
         ><button type="button" class="secondary" :disabled="busy" @click="cancelOperation">
-          Annuler
+          {{ t('Annuler') }}
         </button>
       </div>
     </form>
     <div v-else>
       <p>
-        Un code est demandé à chaque nouvelle connexion.
-        <strong
-          >{{ remaining }} code{{ remaining > 1 ? 's' : '' }} de récupération disponible{{
-            remaining > 1 ? 's' : ''
-          }}.</strong
-        >
+        {{ t('Un code est demandé à chaque nouvelle connexion.') }}
+        <strong>{{ t('{count} codes de récupération disponibles.', { count: remaining }) }}</strong>
       </p>
-      <p v-if="remaining < 3" class="error">Pensez à générer de nouveaux codes de récupération.</p>
+      <p v-if="remaining < 3" class="error">
+        {{ t('Pensez à générer de nouveaux codes de récupération.') }}
+      </p>
       <div class="security-actions">
-        <button class="secondary" @click="operation = 'recovery'">Renouveler les codes</button
-        ><button class="secondary" @click="operation = 'disable'">Désactiver le MFA</button>
+        <button class="secondary" @click="operation = 'recovery'">
+          {{ t('Renouveler les codes') }}</button
+        ><button class="secondary" @click="operation = 'disable'">
+          {{ t('Désactiver le MFA') }}
+        </button>
       </div>
     </div>
   </section>

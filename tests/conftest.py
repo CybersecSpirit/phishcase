@@ -5,12 +5,13 @@ import shutil
 import aiospamc
 import ci
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pytest_docker.plugin import Services
 
 from backend import clients, factories, schemas
+from backend.api.api import api_router
 from backend.investigation.auth import require_user
-from backend.main import create_app
 
 
 @pytest.fixture(scope="session")
@@ -44,7 +45,7 @@ def is_spam_assassin_responsive(port: int) -> bool:
     return asyncio.run(ping())
 
 
-if ci.is_ci():
+if ci.is_ci() or os.environ.get("SPAMASSASSIN_EXTERNAL") == "true":
 
     @pytest.fixture(scope="session", autouse=True)
     def docker_compose():  # type: ignore
@@ -156,7 +157,11 @@ def docx_attachment(encrypted_docx_eml: bytes) -> schemas.Attachment:
 
 @pytest.fixture
 def client() -> TestClient:
-    app = create_app()
+    # Preserve upstream parser regression tests in a test-only harness. These
+    # historical synchronous routes are intentionally absent from the product.
+    app = FastAPI()
+    app.state.redis = None
+    app.include_router(api_router, prefix="/api")
     # Legacy parser endpoint tests use an authenticated analyst.
     # Authentication and role enforcement are covered separately in tests_workspace.
     app.dependency_overrides[require_user] = lambda: {

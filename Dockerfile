@@ -37,7 +37,7 @@ RUN apt-get update \
   && apt-get clean  \
   && rm -rf /var/lib/apt/lists/*
 
-RUN sa-update --no-gpg
+# Debian ships the signed rule set. Do not fetch unsigned rules during builds.
 
 # nobody
 ARG USERNAME=65534
@@ -55,6 +55,7 @@ ENV PATH="/usr/src/app/.venv/bin:${PATH}"
 
 COPY --chown=$USERNAME gunicorn.conf.py circus.ini ./
 COPY --chown=$USERNAME backend ./backend
+COPY --chown=$USERNAME LICENSE THIRD_PARTY_NOTICES.md ./
 
 ENV SPAMD_MAX_CHILDREN=1
 ENV SPAMD_PORT=7833

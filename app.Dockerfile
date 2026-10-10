@@ -54,5 +54,6 @@ ENV PATH="/usr/src/app/.venv/bin:${PATH}"
 
 COPY --chown=$USERNAME gunicorn.conf.py ./
 COPY --chown=$USERNAME backend ./backend
+COPY --chown=$USERNAME LICENSE THIRD_PARTY_NOTICES.md ./
 
 CMD ["gunicorn", "-k", "uvicorn_worker.UvicornWorker", "backend.main:app"]
