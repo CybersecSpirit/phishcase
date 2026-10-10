@@ -12,6 +12,8 @@ export const workspaceRoutes = [
   '/campaigns',
   '/campaigns/:id',
   '/search',
+  '/intelligence',
+  '/actions',
   '/integrations',
   '/security',
   '/users'

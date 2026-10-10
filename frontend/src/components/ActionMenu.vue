@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 
 import { t } from '@/i18n'
+const props = defineProps<{ label?: string }>()
 const menu = ref<HTMLDetailsElement | null>(null)
 const trigger = ref<HTMLElement | null>(null)
 function close(restoreFocus = false) {
@@ -20,7 +21,9 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside))
 </script>
 <template>
   <details ref="menu" class="action-menu" @keydown.esc.stop.prevent="close(true)">
-    <summary ref="trigger">{{ t('Actions') }} <span aria-hidden="true">⌄</span></summary>
+    <summary ref="trigger">
+      {{ t(props.label || 'Actions') }} <span aria-hidden="true">⌄</span>
+    </summary>
     <div class="action-menu-items" @click="selected"><slot /></div>
   </details>
 </template>

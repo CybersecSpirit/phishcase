@@ -3,6 +3,7 @@
 import fcntl
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -50,6 +51,10 @@ def initialize():
     with path.with_suffix(path.suffix + ".init.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         _initialize()
+        from .collections import initialize_collections
+
+        with db() as conn:
+            initialize_collections(conn)
 
 
 def _initialize():
@@ -61,7 +66,7 @@ def _initialize():
         latest = conn.execute(
             "SELECT COALESCE(MAX(version),0) FROM schema_migrations"
         ).fetchone()[0]
-        if latest > 2026092301:
+        if latest > 2026101002:
             raise RuntimeError(
                 "Database is newer than this application. Restore a compatible backup before rollback."
             )
@@ -78,7 +83,7 @@ def _initialize():
           assignee_id INTEGER REFERENCES users(id), created_by INTEGER NOT NULL REFERENCES users(id),
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE IF NOT EXISTS analyses (
-          id TEXT PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES cases(id), filename TEXT NOT NULL,
+          id TEXT PRIMARY KEY, case_id INTEGER REFERENCES cases(id), filename TEXT NOT NULL,
           sha256 TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', subject TEXT NOT NULL DEFAULT '',
           result TEXT, error TEXT, source BLOB, created_by INTEGER NOT NULL REFERENCES users(id),
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, finished_at TEXT);
@@ -126,12 +131,14 @@ def _initialize():
         from .investigations import initialize_investigations
         from .jobs import initialize_jobs
         from .tokens import initialize_tokens
+        from .workflows import initialize_workflows
 
         initialize_tokens(conn)
         initialize_evidence(conn)
         initialize_jobs(conn)
         initialize_investigations(conn)
         initialize_enrichments(conn)
+        initialize_workflows(conn)
         if "locale" not in {r[1] for r in conn.execute("PRAGMA table_info(users)")}:
             conn.execute(
                 "ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'fr'"
@@ -139,13 +146,45 @@ def _initialize():
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations(version) VALUES (2026092301)"
         )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version) VALUES (2026101001)"
+        )
 
 
 def audit(conn, actor, action, case_id=None, detail=""):
+    analysis_id, campaign_id = None, None
+    if action.startswith("analysis."):
+        try:
+            value = json.loads(detail)
+            candidate = value.get("analysis_id") if isinstance(value, dict) else detail
+        except ValueError, TypeError:
+            candidate = detail
+        if conn.execute("SELECT id FROM analyses WHERE id=?", (candidate,)).fetchone():
+            analysis_id = candidate
+    if action.startswith(("reply.", "action.")):
+        try:
+            identity = int(detail)
+        except ValueError, TypeError:
+            try:
+                value = json.loads(detail)
+                identity = value.get("reply_id") or value.get("action_id")
+            except ValueError, TypeError, AttributeError:
+                identity = None
+        table = "reporter_replies" if action.startswith("reply.") else "case_actions"
+        row = conn.execute(
+            f"SELECT analysis_id,campaign_id FROM {table} WHERE id=?", (identity,)
+        ).fetchone()
+        if row:
+            analysis_id, campaign_id = row[0], row[1]
     conn.execute(
-        "INSERT INTO events(actor_id,case_id,action,detail) VALUES (?,?,?,?)",
-        (actor, case_id, action, detail),
+        "INSERT INTO events(actor_id,case_id,action,detail,analysis_id) VALUES (?,?,?,?,?)",
+        (actor, case_id, action, detail, analysis_id),
     )
+    if campaign_id is not None:
+        conn.execute(
+            "INSERT INTO campaign_events(campaign_id,event_id) VALUES (?,last_insert_rowid())",
+            (campaign_id,),
+        )
 
 
 def create_admin(username: str, password: str):

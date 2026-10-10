@@ -19,6 +19,7 @@ from .auth import (
     secure_cookie,
     throttle,
 )
+from .collections import router as collections_router
 from .dkim_api import router as dkim_router
 from .enrichment_api import router as enrichment_router
 from .exports import router as exports_router
@@ -27,6 +28,8 @@ from .mfa import begin_challenge
 from .mfa import router as mfa_router
 from .store import audit, db, password_hash, password_matches
 from .tokens import router as tokens_router
+from .workflows import conflict, guard_closure
+from .workflows import router as workflows_router
 
 router = APIRouter()
 router.include_router(mfa_router)
@@ -35,7 +38,9 @@ router.include_router(tokens_router)
 router.include_router(exports_router)
 router.include_router(enrichment_router)
 router.include_router(dkim_router)
+router.include_router(collections_router)
 router.include_router(investigations_router)
+router.include_router(workflows_router)
 
 
 class Login(BaseModel):
@@ -60,6 +65,7 @@ class CaseInput(BaseModel):
     status: Literal["open", "investigating", "resolved", "closed"] = "open"
     priority: Literal["low", "medium", "high", "critical"] = "medium"
     assignee_id: int | None = None
+    revision: int | None = Field(default=None, ge=1)
 
 
 class Note(BaseModel):
@@ -285,10 +291,15 @@ def get_case(case_id: int, user: User):
 @router.put("/cases/{case_id}")
 def update_case(case_id: int, data: CaseInput, user: Writer):
     with db() as conn:
-        case_exists(conn, case_id)
+        conn.execute("BEGIN IMMEDIATE")
+        current = case_exists(conn, case_id)
+        if data.revision is not None and current["revision"] != data.revision:
+            conflict()
         validate_assignee(conn, data.assignee_id)
+        if data.status == "closed" and current["status"] != "closed":
+            guard_closure(conn, case_id)
         conn.execute(
-            "UPDATE cases SET title=?,description=?,status=?,priority=?,assignee_id=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            "UPDATE cases SET title=?,description=?,status=?,priority=?,assignee_id=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
             (
                 data.title,
                 data.description,

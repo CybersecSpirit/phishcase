@@ -22,8 +22,8 @@ export function pageQuery(
 }
 
 export const eventMessages: Record<string, string> = {
-  'case.created': 'Dossier créé',
-  'case.updated': 'Dossier mis à jour',
+  'case.created': 'Contexte historique créé',
+  'case.updated': 'Contexte historique mis à jour',
   'note.added': 'Note ajoutée',
   'analysis.queued': 'Analyse en attente',
   'analysis.started': 'Analyse démarrée',
@@ -32,12 +32,28 @@ export const eventMessages: Record<string, string> = {
   'analysis.retried': 'Analyse relancée',
   'analysis.decided': 'Décision enregistrée',
   'analysis.reopened': 'Investigation rouverte',
+  'campaign.email_attached': 'Email rattaché',
+  'campaign.email_detached': 'Email détaché',
+  'campaign.note_added': 'Note ajoutée',
   'campaign.created': 'Campagne créée',
   'campaign.updated': 'Campagne mise à jour',
   'campaign.deleted': 'Campagne supprimée',
-  'campaign.case_attached': 'Dossier rattaché',
-  'campaign.case_detached': 'Dossier détaché',
-  'ioc.reviewed': 'Indicateur qualifié',
+  'campaign.case_attached': 'Lien historique ajouté',
+  'campaign.case_detached': 'Lien historique retiré',
+  'ioc.reviewed': 'IoC qualifié',
   'user.created': 'Compte créé',
   'user.updated': 'Compte mis à jour'
 }
+
+Object.assign(eventMessages, {
+  'action.created': 'Action créée',
+  'action.updated': 'Action mise à jour',
+  'reply.drafted': 'Brouillon créé',
+  'reply.updated': 'Brouillon mis à jour',
+  'reply.send_requested': 'Envoi demandé',
+  'reply.accepted': 'Réponse acceptée par le transport',
+  'reply.uncertain': 'Transmission à vérifier',
+  'reply.reconciled': 'Résultat de transmission rapproché',
+  'reply.transport_observed': 'Retour du transport reçu après rapprochement',
+  'intelligence.documented': 'Renseignement documenté'
+})

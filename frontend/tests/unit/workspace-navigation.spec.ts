@@ -46,6 +46,13 @@ function stubApi(
       })
     if (url.pathname.endsWith('/users')) return reply([])
     if (url.pathname.endsWith('/integrations')) return reply({ mode: 'offline', providers: [] })
+    if (url.pathname.endsWith('/legacy/cases/42'))
+      return reply({
+        url: '/analyses/old-analysis',
+        analysis_id: 'old-analysis',
+        campaign_id: null
+      })
+    if (url.pathname.endsWith('/analyses/old-analysis/campaigns')) return reply([])
     if (url.pathname.endsWith('/cases/42/events')) return reply(page([]))
     if (url.pathname.endsWith('/cases/42'))
       return reply({
@@ -180,21 +187,16 @@ describe('shareable workspace navigation and pagination', () => {
     expect(wrapper.find('.email-report img').exists()).toBe(false)
     wrapper.unmount()
   })
-  it('hydrates an old case from its URL and requests its analyses independently of the global list', async () => {
+  it('redirects an archived case URL to its preserved independent email', async () => {
     const fetch = stubApi()
     await router.replace('/cases/42')
     const wrapper = mount(WorkspaceView, options)
     await flushPromises()
+    expect(router.currentRoute.value.path).toBe('/analyses/old-analysis')
     expect(wrapper.text()).toContain(oldAnalysis.subject)
-    expect(
-      fetch.mock.calls.some(
-        ([url]) =>
-          url.includes('/analyses?') && url.includes('case_id=42') && url.includes('page_size=50')
-      )
-    ).toBe(true)
-    expect(
-      fetch.mock.calls.some(([url]) => url.includes('/analyses?') && !url.includes('case_id=42'))
-    ).toBe(false)
+    expect(fetch.mock.calls.some(([url]) => url.includes('/legacy/cases/42'))).toBe(true)
+    expect(fetch.mock.calls.some(([url]) => url.includes('case_id=42'))).toBe(false)
+    expect(wrapper.find('.sidebar').text()).not.toContain('Dossiers')
     wrapper.unmount()
   })
   it('keeps analysis pages in the URL and restores them on back and forward', async () => {

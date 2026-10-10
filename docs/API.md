@@ -14,10 +14,10 @@ authentication is reset. List or revoke only your own tokens. Expiry is at most
 365 days. Keep tokens in a secret store, never command history or URLs.
 
 `POST /api/v1/analyses` accepts multipart field `file` containing EML/MSG, maximum
-20 MiB. `POST /api/v1/cases/{id}/analyses` attaches to an existing case. The 202
+20 MiB. The upload is saved as an independent email. The 202
 response contains the analysis ID and queued state. An optional `Idempotency-Key`
-(1–128 characters) deduplicates retries for the same owner, content and case;
-reuse with different content returns 409. Ingestion is recorded as `api` for tokens
+(1–128 characters) deduplicates retries for the same owner and content (legacy case-bound requests also retain their scope);
+reuse with different content returns 409. Campaigns are optional many-to-many collections; see [the campaign API and migration contract](EMAIL_CAMPAIGNS.md). Ingestion is recorded as `api` for tokens
 and `upload` for browser sessions. V1 has no inbound mailbox or email add-in.
 
 Poll `GET /api/v1/analyses/{id}` until `completed` or `failed`. The original remains
