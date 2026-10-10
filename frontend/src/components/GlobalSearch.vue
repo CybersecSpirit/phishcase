@@ -41,9 +41,8 @@ watch(
   { immediate: true }
 )
 const pathFor = (hit: Hit) =>
-  (({ case: '/cases/', analysis: '/analyses/', ioc: '/iocs/', campaign: '/campaigns/' })[
-    hit.type
-  ] || '/search?unknown=') + encodeURIComponent(hit.id)
+  (({ analysis: '/analyses/', ioc: '/iocs/', campaign: '/campaigns/' })[hit.type] ||
+    '/search?unknown=') + encodeURIComponent(hit.id)
 </script>
 <template>
   <section class="panel">
@@ -56,9 +55,8 @@ const pathFor = (hit: Hit) =>
         required
       /><select v-model="kind" :aria-label="t('Type de résultat')">
         <option value="all">{{ t('Tous les types') }}</option>
-        <option value="case">{{ t('Dossiers') }}</option>
-        <option value="analysis">{{ t('Analyses') }}</option>
-        <option value="ioc">{{ t('Indicateurs') }}</option>
+        <option value="analysis">{{ t('Emails') }}</option>
+        <option value="ioc">{{ t('IoC') }}</option>
         <option value="campaign">{{ t('Campagnes') }}</option></select
       ><button class="primary" :disabled="busy">{{ t('Rechercher') }}</button>
     </form>

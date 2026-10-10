@@ -2,7 +2,6 @@ import asyncio
 import os
 import tempfile
 import unittest
-from datetime import UTC, datetime
 from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
@@ -241,7 +240,7 @@ class WorkspaceTests(unittest.TestCase):
             413,
         )
 
-    def test_direct_upload_creates_named_case_and_keeps_original(self):
+    def test_direct_upload_is_independent_and_keeps_original(self):
         # Exercise missing coverage explicitly, independent of a developer/CI
         # SpamAssassin service. Engine availability is tested separately.
         with patch("backend.dependencies.get_spam_assassin", return_value=None):
@@ -252,13 +251,8 @@ class WorkspaceTests(unittest.TestCase):
         analysis = response.json()
         self.assertEqual(analysis["status"], "completed")
         self.assertEqual(analysis["assessment"]["level"], "inconclusive")
-        case = self.client.get(
-            "/api/workspace/cases/" + str(analysis["case_id"])
-        ).json()
-        self.assertEqual(
-            case["title"], datetime.now(UTC).strftime("%Y-%m-%d") + " · Invoice review"
-        )
-        self.assertEqual(case["assignee_id"], 1)
+        self.assertIsNone(analysis["case_id"])
+        self.assertEqual(self.client.get("/api/workspace/cases").json(), [])
         self.assertEqual(
             self.client.get(
                 "/api/workspace/analyses/" + analysis["id"] + "/source"
@@ -292,10 +286,7 @@ class WorkspaceTests(unittest.TestCase):
             )
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["status"], "failed")
-        case = self.client.get(
-            "/api/workspace/cases/" + str(r.json()["case_id"])
-        ).json()
-        self.assertTrue(case["title"].endswith(" · broken.msg"))
+        self.assertIsNone(r.json()["case_id"])
         self.assertEqual(
             self.client.get(
                 "/api/workspace/analyses/" + r.json()["id"] + "/source"
@@ -303,14 +294,14 @@ class WorkspaceTests(unittest.TestCase):
             EMAIL,
         )
 
-    def test_repeated_uploads_have_distinct_cases(self):
+    def test_repeated_uploads_remain_independent(self):
         results = [
             self.upload(
                 "/api/workspace/analyses", files={"file": ("same.eml", EMAIL)}
             ).json()
             for _ in range(2)
         ]
-        self.assertNotEqual(results[0]["case_id"], results[1]["case_id"])
+        self.assertTrue(all(item["case_id"] is None for item in results))
         self.assertNotEqual(results[0]["id"], results[1]["id"])
 
     def test_msg_direct_upload(self):
@@ -342,7 +333,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         analysis = r.json()
         self.assertEqual(analysis["status"], "completed", r.text)
-        self.assertEqual(len(self.client.get("/api/workspace/cases").json()), 1)
+        self.assertEqual(len(self.client.get("/api/workspace/cases").json()), 0)
         self.assertEqual(len(analysis["result"]["eml"]["attachments"]), 1)
         path = "/api/workspace/analyses/" + analysis["id"] + "/attachments/0"
         download = self.client.get(path)

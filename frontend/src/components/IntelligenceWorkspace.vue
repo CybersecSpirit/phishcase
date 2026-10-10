@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+
 import { errorMessage } from '@/errors'
 import { t } from '@/i18n'
 import router from '@/router'
 import { emptyPage, type Page, type Request } from '@/workspace'
+
 import PaginationControls from './PaginationControls.vue'
 type Observation = {
   id: number
@@ -21,9 +23,13 @@ type Observation = {
   campaign_name?: string
   username?: string
 }
-const props = defineProps<{ request: Request; canWrite: boolean; caseId?: number }>()
+const props = defineProps<{
+  request: Request
+  canWrite: boolean
+  caseId?: number
+  campaignId?: number
+}>()
 const items = ref(emptyPage<Observation>()),
-  cases = ref<{ id: number; title: string }[]>([]),
   campaigns = ref<{ id: number; name: string }[]>([]),
   error = ref(''),
   busy = ref(false),
@@ -31,7 +37,7 @@ const items = ref(emptyPage<Observation>()),
   editing = ref<number | null>(null)
 const blank = () => ({
   case_id: props.caseId || null,
-  campaign_id: null as number | null,
+  campaign_id: (props.campaignId || null) as number | null,
   title: '',
   source: '',
   facts: '',
@@ -55,16 +61,13 @@ async function run(fn: () => Promise<unknown>) {
 }
 async function load(page = 1) {
   items.value = await props.request<Page<Observation>>(
-    '/intelligence?page=' + page + (props.caseId ? '&case_id=' + props.caseId : '')
+    '/intelligence?page=' + page + (props.campaignId ? '&campaign_id=' + props.campaignId : '')
   )
 }
 async function options() {
-  const [c, p] = await Promise.all([
-    props.request<Page<{ id: number; title: string }>>('/cases?page=1&page_size=200'),
-    props.request<Page<{ id: number; name: string }>>('/campaigns?page=1&page_size=200')
-  ])
-  cases.value = c.items
-  campaigns.value = p.items
+  campaigns.value = (
+    await props.request<Page<{ id: number; name: string }>>('/campaigns?page=1&page_size=200')
+  ).items
 }
 async function save() {
   await run(async () => {
@@ -90,7 +93,7 @@ function edit(item: Observation) {
   show.value = true
 }
 watch(
-  () => props.caseId,
+  () => props.campaignId,
   () =>
     void run(async () => {
       await Promise.all([load(), options()])
@@ -124,14 +127,6 @@ watch(
       <label>{{ t('Observation') }}<input v-model="form.title" required maxlength="240" /></label>
       <div class="inline-fields">
         <label
-          >{{ t('Dossier')
-          }}<select v-model="form.case_id">
-            <option :value="null">{{ t('Sans rattachement') }}</option>
-            <option v-for="c in cases" :key="c.id" :value="c.id">
-              #{{ c.id }} · {{ c.title }}
-            </option>
-          </select></label
-        ><label
           >{{ t('Campagne')
           }}<select v-model="form.campaign_id">
             <option :value="null">{{ t('Sans rattachement') }}</option>
@@ -194,13 +189,6 @@ watch(
         <div>
           <h3>{{ t('Hypothèse') }}</h3>
           <p class="preserve-lines">{{ item.hypothesis || '—' }}</p>
-          <p v-if="item.case_id">
-            <a
-              :href="'/cases/' + item.case_id"
-              @click.exact.prevent="router.push('/cases/' + item.case_id)"
-              >{{ item.case_title || '#' + item.case_id }}</a
-            >
-          </p>
           <p v-if="item.campaign_id">
             <a
               :href="'/campaigns/' + item.campaign_id"

@@ -6,13 +6,14 @@ import ActionMenu from '@/components/ActionMenu.vue'
 import AnalysisIntake from '@/components/AnalysisIntake.vue'
 import AnalystDecision from '@/components/AnalystDecision.vue'
 import CampaignWorkspace from '@/components/CampaignWorkspace.vue'
+import EmailCampaignPicker from '@/components/EmailCampaignPicker.vue'
 import EnrichmentResults from '@/components/EnrichmentResults.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
+import IntelligenceWorkspace from '@/components/IntelligenceWorkspace.vue'
 import InvestigationContext from '@/components/InvestigationContext.vue'
 import OperationalFollowup from '@/components/OperationalFollowup.vue'
-import IntelligenceWorkspace from '@/components/IntelligenceWorkspace.vue'
-import TaskGuide from '@/components/TaskGuide.vue'
 import PaginationControls from '@/components/PaginationControls.vue'
+import TaskGuide from '@/components/TaskGuide.vue'
 import { errorMessage, RequestError } from '@/errors'
 import { locale, setLocale, setLocaleUser, t } from '@/i18n'
 import { vResponsiveTable } from '@/responsiveTable'
@@ -29,19 +30,6 @@ type Assessment = {
   scope: string
 }
 type User = { id: number; username: string; role: string; active: boolean }
-type Case = {
-  id: number
-  title: string
-  description: string
-  status: string
-  priority: string
-  revision: number
-  assignee_id: number | null
-  assignee?: string
-  analysis_count?: number
-  notes?: Entry[]
-  events?: Entry[]
-}
 type Entry = {
   id: number
   username: string
@@ -67,7 +55,7 @@ type EmailReport = {
 }
 type Analysis = {
   id: string
-  case_id: number
+  case_id: number | null
   filename: string
   subject: string
   status: string
@@ -84,12 +72,10 @@ type IOC = {
   value: string
   verdict: string
   analysis_count: number
-  case_count: number
+  campaign_count: number
   campaigns?: { id: number; name: string }[]
 }
 type Dashboard = {
-  cases: number
-  open_cases: number
   analyses: number
   iocs: number
   failed_analyses: number
@@ -98,6 +84,14 @@ type Dashboard = {
   active_campaigns?: number
   frequent_iocs?: IOC[]
   recent_analyses?: Analysis[]
+  analyses_to_review?: Analysis[]
+  campaigns_to_follow?: {
+    id: number
+    name: string
+    assignee?: string
+    priority: string
+    analysis_count: number
+  }[]
 }
 type ExtensionLink = { label: string; url: string }
 const extensions = ref<{
@@ -140,8 +134,7 @@ async function loadExtensions() {
 const user = ref<User | null>(null),
   ready = ref(false),
   error = ref(''),
-  busy = ref(false),
-  uploading = ref(false)
+  busy = ref(false)
 const mfaRequired = ref(false),
   mfaCode = ref(''),
   useRecovery = ref(false)
@@ -156,20 +149,12 @@ function closeMobileMenu() {
 const tab = ref('intake'),
   username = ref(''),
   password = ref(''),
-  query = ref(''),
-  caseStatus = ref('')
-const cases = ref<Case[]>([]),
-  users = ref<User[]>([]),
+  query = ref('')
+const users = ref<User[]>([]),
   analyses = ref<Analysis[]>([]),
   iocs = ref<IOC[]>([])
 const dashboard = ref<Dashboard | null>(null),
-  selected = ref<Case | null>(null),
   report = ref<Analysis | null>(null)
-const note = ref(''),
-  showCreate = ref(false),
-  caseTitle = ref(''),
-  caseDescription = ref(''),
-  casePriority = ref('medium')
 const newName = ref(''),
   newPassword = ref(''),
   newRole = ref('analyst')
@@ -178,29 +163,28 @@ const occurrences = ref<{ id: string; filename: string; case_id: number; title: 
 )
 type FollowupAction = {
   id: number
-  case_id: number
+  case_id: number | null
+  campaign_id: number | null
+  analysis_id: string | null
   title: string
   owner: string
   due_date: string
   status: string
 }
-const caseScope = ref('mine'),
-  actionScope = ref('mine'),
+const selectedEmailIds = ref<string[]>([])
+const reportCampaigns = ref<{ id: number; name: string }[]>([])
+const actionScope = ref('mine'),
   actionPage = ref(emptyPage<FollowupAction>())
 const actionRows = computed(() => actionPage.value.items)
-const reportView = ref('message'),
-  caseView = ref('investigation')
+const reportView = ref('message')
 const actionNames: Record<string, string> = {
   todo: 'À faire',
   doing: 'En cours',
   done: 'Terminée',
   cancelled: 'Annulée'
 }
-const casePage = ref(emptyPage<Case>()),
-  analysisPage = ref(emptyPage<Analysis>()),
-  iocPage = ref(emptyPage<IOC>()),
-  scopedAnalyses = ref(emptyPage<Analysis>()),
-  eventPage = ref(emptyPage<Entry>())
+const analysisPage = ref(emptyPage<Analysis>()),
+  iocPage = ref(emptyPage<IOC>())
 const occurrencePage =
   ref(emptyPage<{ id: string; filename: string; case_id: number; title: string }>())
 const selectedIoc = ref<IOC | null>(null)
@@ -209,9 +193,8 @@ const writer = computed(() => user.value && user.value.role !== 'viewer')
 const tabs = computed(() => [
   ['intake', t('Réception')],
   ['dashboard', t('Vue d’ensemble')],
-  ['cases', t('Dossiers')],
-  ['analyses', t('Analyses')],
-  ['iocs', t('Indices')],
+  ['analyses', t('Emails')],
+  ['iocs', t('IoC')],
   ['campaigns', t('Campagnes')],
   ['intelligence', t('Renseignement')],
   ['actions', t('Actions')],
@@ -223,7 +206,7 @@ const tabs = computed(() => [
     : [])
 ])
 const primaryTabs = computed(() =>
-  tabs.value.filter(([id]) => ['intake', 'cases', 'iocs', 'campaigns', 'actions'].includes(id!))
+  tabs.value.filter(([id]) => ['intake', 'analyses', 'iocs', 'campaigns', 'actions'].includes(id!))
 )
 const explorerTabs = computed(() =>
   tabs.value.filter(([id]) => ['dashboard', 'analyses', 'search', 'intelligence'].includes(id!))
@@ -234,7 +217,6 @@ const accountTabs = computed(() =>
 const navIcons: Record<string, string> = {
   intake: '↥',
   dashboard: '◫',
-  cases: '▣',
   analyses: '≋',
   iocs: '⌘',
   users: '◎',
@@ -304,25 +286,10 @@ function changeActionScope(value: string) {
   actionScope.value = value
   void act(refresh)
 }
-function changeCaseScope(value: string) {
-  caseScope.value = value
-  void listPage(1)
-}
 async function loadActionPage(page = 1) {
   actionPage.value = await api<Page<FollowupAction>>(
     '/actions?scope=' + actionScope.value + '&page=' + page
   )
-}
-async function loadCases(page = 1) {
-  casePage.value = await api<Page<Case>>(
-    '/cases?' +
-      pageQuery(page, {
-        q: query.value,
-        status: caseStatus.value,
-        assignee_id: caseScope.value === 'mine' ? user.value?.id : undefined
-      })
-  )
-  cases.value = casePage.value.items || []
 }
 async function loadAnalyses(page = 1) {
   analysisPage.value = await api<Page<Analysis>>(
@@ -333,18 +300,6 @@ async function loadAnalyses(page = 1) {
 async function loadIocs(page = 1) {
   iocPage.value = await api<Page<IOC>>('/iocs?' + pageQuery(page, { q: query.value }))
   iocs.value = iocPage.value.items || []
-}
-async function loadCaseAnalyses(page = 1) {
-  if (selected.value)
-    scopedAnalyses.value = await api<Page<Analysis>>(
-      '/analyses?' + pageQuery(page, { case_id: selected.value.id })
-    )
-}
-async function loadCaseEvents(page = 1) {
-  if (selected.value)
-    eventPage.value = await api<Page<Entry>>(
-      '/cases/' + selected.value.id + '/events?' + pageQuery(page)
-    )
 }
 async function loadOccurrences(page = 1) {
   if (selectedIoc.value) {
@@ -358,19 +313,14 @@ async function refresh() {
   const [d, u] = await Promise.all([api<Dashboard>('/dashboard'), api<User[]>('/users')])
   dashboard.value = d
   users.value = u
-  if (['dashboard', 'cases', 'intake'].includes(tab.value)) await loadCases(casePage.value.page)
   if (tab.value === 'actions') await loadActionPage()
   if (tab.value === 'analyses' || tab.value === 'intake')
     await loadAnalyses(analysisPage.value.page)
   if (tab.value === 'iocs') await loadIocs(iocPage.value.page)
-  if (selected.value) {
-    selected.value = await api<Case>('/cases/' + selected.value.id)
-    await Promise.all([
-      loadCaseAnalyses(scopedAnalyses.value.page),
-      loadCaseEvents(eventPage.value.page)
-    ])
+  if (report.value) {
+    report.value = await api<Analysis>('/analyses/' + report.value.id)
+    reportCampaigns.value = await api('/analyses/' + report.value.id + '/campaigns')
   }
-  if (report.value) report.value = await api<Analysis>('/analyses/' + report.value.id)
 }
 async function loadPreferences() {
   setLocaleUser(user.value?.id)
@@ -441,9 +391,8 @@ async function logout() {
     mfaRequired.value = false
     mfaCode.value = ''
     tab.value = 'intake'
-    selected.value = null
+    selectedEmailIds.value = []
     report.value = null
-    cases.value = []
     analyses.value = []
     iocs.value = []
     dashboard.value = null
@@ -458,35 +407,28 @@ async function navigate(value: string) {
   closeMobileMenu()
   await router.push(value === 'intake' ? '/' : '/' + value)
 }
-async function openCase(id: number) {
-  await router.push('/cases/' + id)
-}
-function closeCase() {
-  void router.push('/cases')
-}
 async function syncRoute() {
+  if (!user.value) return
+  if (router.currentRoute.value.path.startsWith('/cases')) {
+    const id = router.currentRoute.value.params.id
+    const target = id ? (await api<{ url: string }>('/legacy/cases/' + id)).url : '/campaigns'
+    await router.replace(target)
+    return syncRoute()
+  }
   if (!user.value) return
   const route = router.currentRoute.value
   const section = route.path.split('/')[1] || 'intake'
   tab.value = section
   query.value = String(route.query.q || '')
-  caseStatus.value = section === 'cases' ? String(route.query.status || '') : ''
   analysisStatus.value = section === 'analyses' ? String(route.query.status || '') : ''
-  selected.value = null
+  selectedEmailIds.value = []
   report.value = null
   reportView.value = 'message'
-  caseView.value = 'investigation'
   occurrences.value = null
   selectedIoc.value = null
   const page = Math.max(1, Number(route.query.page || 1))
-  casePage.value.page = page
   analysisPage.value.page = page
   iocPage.value.page = page
-  if (section === 'cases' && route.params.id) {
-    selected.value = await api<Case>('/cases/' + encodeURIComponent(String(route.params.id)))
-    scopedAnalyses.value = emptyPage()
-    eventPage.value = emptyPage()
-  }
   if (section === 'analyses' && route.params.id)
     report.value = await api<Analysis>('/analyses/' + encodeURIComponent(String(route.params.id)))
   if (section === 'iocs' && route.params.id) {
@@ -501,12 +443,7 @@ async function listPage(page = 1) {
     query: {
       q: query.value,
       page,
-      status:
-        tab.value === 'cases'
-          ? caseStatus.value
-          : tab.value === 'analyses'
-            ? analysisStatus.value
-            : undefined
+      status: tab.value === 'analyses' ? analysisStatus.value : undefined
     }
   })
 }
@@ -516,35 +453,6 @@ watch(
     if (ready.value && user.value) void act(syncRoute)
   }
 )
-async function createCase() {
-  await act(async () => {
-    const c = await api<Case>('/cases', 'POST', {
-      title: caseTitle.value,
-      description: caseDescription.value,
-      priority: casePriority.value
-    })
-    showCreate.value = false
-    caseTitle.value = ''
-    caseDescription.value = ''
-    await openCase(c.id)
-    await refresh()
-  })
-}
-async function saveCase() {
-  await act(async () => {
-    if (selected.value) {
-      await api('/cases/' + selected.value.id, 'PUT', selected.value)
-      await refresh()
-    }
-  })
-}
-async function addNote() {
-  await act(async () => {
-    await api('/cases/' + selected.value!.id + '/notes', 'POST', { body: note.value })
-    note.value = ''
-    await refresh()
-  })
-}
 async function directUpload(file: File): Promise<Analysis> {
   const form = new FormData()
   form.append('file', file)
@@ -557,32 +465,6 @@ const reportElement = ref<HTMLElement | null>(null)
 async function revealReport() {
   await nextTick()
   reportElement.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-}
-async function upload(event: Event) {
-  const input = event.target as HTMLInputElement,
-    file = input.files?.[0],
-    caseId = selected.value?.id
-  if (!file || !caseId) return
-  if (file.size > 20 * 1024 * 1024) {
-    error.value = t('Le fichier dépasse 20 Mo.')
-    input.value = ''
-    return
-  }
-  uploading.value = true
-  error.value = ''
-  try {
-    const form = new FormData()
-    form.append('file', file)
-    const result = await api<Analysis>('/cases/' + caseId + '/analyses', 'POST', form)
-    await refresh()
-    await openReport(result.id)
-    if (result.status === 'failed') error.value = errorMessage(result.error, result.error_code)
-  } catch (e) {
-    error.value = errorMessage(e)
-  } finally {
-    uploading.value = false
-    input.value = ''
-  }
 }
 async function openReport(id: string) {
   await router.push('/analyses/' + encodeURIComponent(id))
@@ -644,7 +526,6 @@ const readableBodies = computed(
     })) ||
     []
 )
-const caseAnalyses = computed(() => scopedAnalyses.value.items)
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
   await loadExtensions()
@@ -662,11 +543,6 @@ onMounted(async () => {
     try {
       if (report.value && ['queued', 'running'].includes(report.value.status))
         report.value = await api<Analysis>('/analyses/' + report.value.id)
-      if (
-        selected.value &&
-        scopedAnalyses.value.items.some((a) => ['queued', 'running'].includes(a.status))
-      )
-        await loadCaseAnalyses(scopedAnalyses.value.page)
       if (
         tab.value === 'analyses' &&
         analyses.value.some((a) => ['queued', 'running'].includes(a.status))
@@ -714,7 +590,7 @@ onUnmounted(() => {
         <p class="folio-reference">PHISHCASE / {{ t('Identification') }}</p>
         <p class="eyebrow">{{ t('EMAIL INVESTIGATION WORKSPACE') }}</p>
         <h1>{{ t('Ouvrir votre espace') }}</h1>
-        <p class="muted">{{ t('Des emails suspects aux dossiers résolus.') }}</p>
+        <p class="muted">{{ t('Des emails suspects aux investigations résolues.') }}</p>
         <template v-if="!mfaRequired">
           <label>
             {{ t('Identifiant') }}
@@ -812,8 +688,7 @@ onUnmounted(() => {
               @click="navigate(id!)"
             >
               <span class="nav-symbol">{{ navIcons[id!] }}</span
-              >{{ label
-              }}<span v-if="id === 'cases'" class="count">{{ dashboard?.open_cases || 0 }}</span>
+              >{{ label }}
             </button>
             <ActionMenu
               label="Explorer"
@@ -873,34 +748,26 @@ onUnmounted(() => {
                   tab === 'intake'
                     ? t('UN EMAIL SUSPECT ?')
                     : tab === 'dashboard'
-                      ? t('CHAQUE INDICE COMPTE')
+                      ? t('CHAQUE IoC COMPTE')
                       : t('PHISHCASE / INVESTIGATION')
                 }}
               </p>
-              <h1>{{ selected ? selected.title : tabs.find((t) => t[0] === tab)?.[1] }}</h1>
+              <h1>{{ tabs.find((t) => t[0] === tab)?.[1] }}</h1>
               <p class="muted">
                 {{
                   tab === 'intake'
                     ? t(
-                        'Déposez votre email. Consultez le résultat. Retrouvez-le automatiquement dans son dossier.'
+                        'Déposez votre email. Consultez son analyse. Regroupez les messages utiles dans une campagne si nécessaire.'
                       )
                     : tab === 'security'
                       ? t('Gérez la sécurité de votre compte et vos moyens de récupération.')
                       : tab === 'dashboard'
-                        ? t('Votre activité, vos dossiers et les signaux à suivre.')
-                        : selected
-                          ? t('Dossier #') + selected.id + t(' · preuves, analyses et chronologie')
-                          : t('Centralisez les éléments utiles à votre investigation.')
+                        ? t('Vos emails, les analyses à vérifier et les campagnes à suivre.')
+                        : t('Centralisez les éléments utiles à votre investigation.')
                 }}
               </p>
             </div>
-            <button
-              v-if="tab === 'cases' && writer && !selected"
-              class="primary"
-              @click="showCreate = !showCreate"
-            >
-              {{ t('+ Nouveau dossier') }}</button
-            ><button v-else class="quiet-button" :disabled="busy" @click="act(refresh)">
+            <button class="quiet-button" :disabled="busy" @click="act(refresh)">
               {{ t('↻ Actualiser') }}
             </button>
           </div>
@@ -928,7 +795,7 @@ onUnmounted(() => {
               <thead>
                 <tr>
                   <th>{{ t('Action') }}</th>
-                  <th>{{ t('Dossier') }}</th>
+                  <th>{{ t('Campagne ou email') }}</th>
                   <th>{{ t('Responsable') }}</th>
                   <th>{{ t('Échéance') }}</th>
                   <th>{{ t('Statut') }}</th>
@@ -938,12 +805,23 @@ onUnmounted(() => {
                 <tr v-for="item in actionRows" :key="item.id">
                   <td>
                     <a
-                      :href="'/cases/' + item.case_id"
-                      @click="followLink($event, '/cases/' + item.case_id)"
+                      :href="
+                        item.campaign_id
+                          ? '/campaigns/' + item.campaign_id
+                          : '/analyses/' + item.analysis_id
+                      "
+                      @click="
+                        followLink(
+                          $event,
+                          item.campaign_id
+                            ? '/campaigns/' + item.campaign_id
+                            : '/analyses/' + item.analysis_id
+                        )
+                      "
                       >{{ item.title }}</a
                     >
                   </td>
-                  <td>#{{ item.case_id }}</td>
+                  <td>{{ item.campaign_id ? '#' + item.campaign_id : t('Email') }}</td>
                   <td>{{ item.owner || t('Non assigné') }}</td>
                   <td>{{ item.due_date || '—' }}</td>
                   <td>
@@ -966,7 +844,12 @@ onUnmounted(() => {
             :settings-url="extensions.manage_integrations_url"
           />
           <GlobalSearch v-if="tab === 'search'" :request="api" />
-          <CampaignWorkspace v-if="tab === 'campaigns'" :request="api" :can-write="!!writer" />
+          <CampaignWorkspace
+            v-if="tab === 'campaigns'"
+            :request="api"
+            :can-write="!!writer"
+            :users="users"
+          />
           <AccountSecurity v-if="tab === 'security'" :request="api" />
           <AnalysisIntake
             v-show="tab === 'intake'"
@@ -975,7 +858,6 @@ onUnmounted(() => {
             :can-upload="!!writer"
             @completed="afterUpload"
             @open="openReport"
-            @case="openCase"
           />
           <div v-if="tab === 'intake'" class="reception-ledger">
             <section class="panel">
@@ -1003,29 +885,61 @@ onUnmounted(() => {
               >
             </section>
             <section class="panel reception-note">
-              <p class="eyebrow">{{ t('Mes investigations') }}</p>
-              <h2>{{ t('Reprendre un dossier') }}</h2>
+              <h2>{{ t('Campagnes à suivre') }}</h2>
               <p class="small muted">
-                {{
-                  t('Vos dossiers, vos décisions. Les indices se lisent à l’échelle de l’équipe.')
-                }}
+                {{ t('Le suivi collectif des emails liés, par priorité et responsable.') }}
               </p>
               <a
-                v-for="c in cases.slice(0, 5)"
+                v-for="c in dashboard?.campaigns_to_follow || []"
                 :key="c.id"
-                :href="'/cases/' + c.id"
                 class="case-row"
-                @click="followLink($event, '/cases/' + c.id)"
+                :href="'/campaigns/' + c.id"
+                @click="followLink($event, '/campaigns/' + c.id)"
                 ><div>
-                  <span class="folio-reference">PC-{{ c.id }}</span
-                  ><strong>{{ c.title }}</strong
+                  <strong>{{ c.name }}</strong
                   ><small
-                    >{{ labels[c.status] }} · {{ c.analysis_count }} {{ t('Analyses') }}</small
+                    >{{ c.assignee || t('Non assigné') }} · {{ c.analysis_count }}
+                    {{ t('Emails') }}</small
                   >
-                </div></a
-              ><button class="text-link" @click="navigate('cases')">
-                {{ t('Mes dossiers') }} →
+                </div>
+                <span class="badge" :data-state="c.priority">{{ labels[c.priority] }}</span></a
+              >
+              <p v-if="!dashboard?.campaigns_to_follow?.length" class="empty">
+                {{ t('Aucune campagne à suivre.') }}
+              </p>
+              <button class="text-link" @click="navigate('campaigns')">
+                {{ t('Toutes les campagnes') }} →
               </button>
+            </section>
+            <section class="panel">
+              <h2>{{ t('Analyses à vérifier') }}</h2>
+              <a
+                v-for="a in dashboard?.analyses_to_review || []"
+                :key="a.id"
+                class="case-row"
+                :href="'/analyses/' + a.id"
+                @click="followLink($event, '/analyses/' + a.id)"
+                ><strong>{{ a.subject || a.filename }}</strong
+                ><span class="badge" :data-state="a.status">{{ labels[a.status] }}</span></a
+              >
+              <p v-if="!dashboard?.analyses_to_review?.length" class="empty">
+                {{ t('Aucune analyse à vérifier.') }}
+              </p>
+            </section>
+            <section class="panel">
+              <h2>{{ t('IoC fréquents') }}</h2>
+              <a
+                v-for="i in dashboard?.frequent_iocs || []"
+                :key="i.id"
+                class="case-row"
+                :href="'/iocs/' + i.id"
+                @click="followLink($event, '/iocs/' + i.id)"
+                ><code>{{ defang(i.value) }}</code
+                ><small>{{ i.analysis_count }} {{ t('Emails') }}</small></a
+              >
+              <p v-if="!dashboard?.frequent_iocs?.length" class="empty">
+                {{ t('Aucun IoC extrait.') }}
+              </p>
             </section>
           </div>
           <section v-if="report" ref="reportElement" class="panel report">
@@ -1050,13 +964,12 @@ onUnmounted(() => {
                 <button class="menu-item" @click="navigate('analyses')">{{ t('Fermer') }}</button>
               </ActionMenu>
             </div>
-            <a
-              class="text-link"
-              :href="'/cases/' + report!.case_id"
-              @click="followLink($event, '/cases/' + report!.case_id)"
-            >
-              {{ t('Retrouver dans le dossier #') }} {{ report.case_id }} →
-            </a>
+            <EmailCampaignPicker :analysis-ids="[report.id]" :request="api" :can-write="!!writer" />
+            <p v-for="c in reportCampaigns" :key="c.id">
+              <a :href="'/campaigns/' + c.id" @click="followLink($event, '/campaigns/' + c.id)">{{
+                c.name
+              }}</a>
+            </p>
             <p>
               <span class="badge" :data-state="report.status">{{ labels[report.status] }}</span>
             </p>
@@ -1088,7 +1001,7 @@ onUnmounted(() => {
               <button
                 v-for="[id, label] in [
                   ['message', 'Message'],
-                  ['indices', 'Indices et corrélations'],
+                  ['indices', 'IoC et corrélations'],
                   ['technique', 'Enrichissements et technique'],
                   ['followup', 'Réponse et actions']
                 ]"
@@ -1150,7 +1063,7 @@ onUnmounted(() => {
                   }}
                 </p>
                 <p class="small muted">
-                  {{ t('Conservées avec cet email dans le dossier #') }} {{ report.case_id }}
+                  {{ t('Conservées avec cet email') }}
                   {{ t('. Analyse statique Office ; pas d’exécution en sandbox.') }}
                 </p>
                 <article
@@ -1197,7 +1110,6 @@ onUnmounted(() => {
             </div>
             <OperationalFollowup
               v-if="reportView === 'followup'"
-              :case-id="report.case_id"
               :analysis-id="report.id"
               :request="api"
               :can-write="!!writer"
@@ -1231,9 +1143,8 @@ onUnmounted(() => {
             <div class="stats">
               <div
                 v-for="[label, value, caption] in [
-                  [t('Dossiers ouverts'), dashboard.open_cases, t('À investiguer')],
                   [t('Analyses'), dashboard.analyses, t('Emails traités ou en cours')],
-                  [t('Indicateurs'), dashboard.iocs, t('IOC uniques extraits')],
+                  [t('IoC'), dashboard.iocs, t('IoC uniques extraits')],
                   [t('Échecs'), dashboard.failed_analyses, t('Analyses à vérifier')],
                   [
                     t('Verdicts en attente'),
@@ -1278,8 +1189,8 @@ onUnmounted(() => {
               </section>
               <section class="panel">
                 <div class="panel-title">
-                  <h2>{{ t('IOC fréquents') }}</h2>
-                  <button @click="navigate('campaigns')">{{ t('Campagnes actives') }} →</button>
+                  <h2>{{ t('IoC fréquents') }}</h2>
+                  <button @click="navigate('iocs')">{{ t('Tous les IoC') }} →</button>
                 </div>
                 <p v-if="!dashboard.frequent_iocs?.length" class="empty">
                   {{ t('Aucun résultat trouvé.') }}
@@ -1292,41 +1203,19 @@ onUnmounted(() => {
                   @click="followLink($event, '/iocs/' + ioc.id)"
                 >
                   <code class="ioc-value">{{ defang(ioc.value) }}</code
-                  ><small
-                    >{{ ioc.analysis_count }} {{ t('Analyses') }} · {{ ioc.case_count }}
-                    {{ t('Dossiers') }}</small
-                  >
+                  ><small>{{ ioc.analysis_count }} {{ t('Emails') }}</small>
                 </a>
               </section>
               <section class="panel">
-                <div class="panel-title">
-                  <h2>{{ t('Dossiers récents') }}</h2>
-                  <button @click="navigate('cases')">{{ t('Voir les dossiers →') }}</button>
-                </div>
-                <div v-if="!cases.length" class="empty">
-                  {{ t('Votre première investigation commence ici.') }}
-                  <button v-if="writer" class="primary" @click="navigate('intake')">
-                    {{ t('Analyser un email') }}
-                  </button>
-                </div>
+                <h2>{{ t('Campagnes à suivre') }}</h2>
                 <a
-                  v-for="c in cases.slice(0, 6)"
+                  v-for="c in dashboard.campaigns_to_follow || []"
                   :key="c.id"
                   class="case-row"
-                  :href="'/cases/' + c.id"
-                  @click="followLink($event, '/cases/' + c.id)"
+                  :href="'/campaigns/' + c.id"
+                  @click="followLink($event, '/campaigns/' + c.id)"
+                  >{{ c.name }} · {{ c.assignee || t('Non assigné') }}</a
                 >
-                  <span class="case-number">#{{ String(c.id).padStart(3, '0') }}</span>
-                  <div>
-                    <strong>{{ c.title }}</strong
-                    ><small
-                      >{{ c.assignee || t('Non assigné') }} · {{ c.analysis_count }}
-                      {{ t('analyse(s)') }}
-                    </small>
-                  </div>
-                  <span class="badge" :data-state="c.priority">{{ labels[c.priority] }}</span
-                  ><span>↗</span>
-                </a>
               </section>
               <section class="panel">
                 <div class="panel-title">
@@ -1347,264 +1236,6 @@ onUnmounted(() => {
                 </div>
               </section>
             </div>
-          </template>
-          <template v-if="tab === 'cases'">
-            <form
-              v-if="showCreate && !selected"
-              class="panel form-grid"
-              @submit.prevent="createCase"
-            >
-              <h2>{{ t('Nouveau dossier') }}</h2>
-              <label> {{ t('Titre') }} <input v-model="caseTitle" maxlength="200" required /></label
-              ><label>
-                {{ t('Description') }}
-                <textarea v-model="caseDescription" rows="3"></textarea></label
-              ><label>
-                {{ t('Priorité') }}
-                <select v-model="casePriority">
-                  <option v-for="p in ['low', 'medium', 'high', 'critical']" :key="p" :value="p">
-                    {{ labels[p] }}
-                  </option>
-                </select></label
-              >
-              <div>
-                <button class="primary" :disabled="busy">{{ t('Créer le dossier') }}</button>
-                <button type="button" class="secondary" @click="showCreate = false">
-                  {{ t('Annuler') }}
-                </button>
-              </div>
-            </form>
-            <template v-if="selected">
-              <button class="back" @click="closeCase">{{ t('← Tous les dossiers') }}</button>
-              <nav class="folio-tabs" aria-label="Dossier">
-                <button
-                  v-for="[id, label] in [
-                    ['investigation', 'Investigation'],
-                    ['followup', 'Réponse et actions'],
-                    ['intelligence', 'Renseignement'],
-                    ['journal', 'Notes et chronologie']
-                  ]"
-                  :key="id"
-                  :class="{ active: caseView === id }"
-                  @click="caseView = id!"
-                >
-                  {{ t(label!) }}
-                </button>
-              </nav>
-              <div v-show="caseView === 'investigation'">
-                <section class="panel form-grid">
-                  <label>
-                    {{ t('Titre') }}
-                    <input v-model="selected.title" :disabled="!writer" maxlength="200" /></label
-                  ><label>
-                    {{ t('Description') }}
-                    <textarea
-                      v-model="selected.description"
-                      :disabled="!writer"
-                      rows="3"
-                    ></textarea>
-                  </label>
-                  <div class="inline-fields">
-                    <label>
-                      {{ t('Statut') }}
-                      <select v-model="selected.status" :disabled="!writer">
-                        <option
-                          v-for="s in ['open', 'investigating', 'resolved', 'closed']"
-                          :key="s"
-                          :value="s"
-                        >
-                          {{ labels[s] }}
-                        </option>
-                      </select></label
-                    ><label>
-                      {{ t('Priorité') }}
-                      <select v-model="selected.priority" :disabled="!writer">
-                        <option
-                          v-for="s in ['low', 'medium', 'high', 'critical']"
-                          :key="s"
-                          :value="s"
-                        >
-                          {{ labels[s] }}
-                        </option>
-                      </select></label
-                    ><label>
-                      {{ t('Responsable') }}
-                      <select v-model="selected.assignee_id" :disabled="!writer">
-                        <option :value="null">{{ t('Non assigné') }}</option>
-                        <option
-                          v-for="u in users.filter((u) => u.active && u.role !== 'viewer')"
-                          :key="u.id"
-                          :value="u.id"
-                        >
-                          {{ u.username }}
-                        </option>
-                      </select></label
-                    >
-                  </div>
-                  <div v-if="writer">
-                    <button class="primary" :disabled="busy" @click="saveCase">
-                      {{ t('Enregistrer') }}
-                    </button>
-                  </div>
-                </section>
-                <section class="panel">
-                  <div class="panel-title">
-                    <h2>{{ t('Analyses du dossier') }}</h2>
-                    <label v-if="writer" class="upload-button"
-                      >{{ uploading ? t('Envoi en cours…') : '+ ' + t('Analyser un email')
-                      }}<input
-                        type="file"
-                        accept=".eml,.msg"
-                        :disabled="uploading"
-                        @change="upload"
-                    /></label>
-                  </div>
-                  <p class="small muted">
-                    {{
-                      t(
-                        'EML / MSG · 20 Mo maximum · Le résultat et les IOC sont conservés dans le dossier.'
-                      )
-                    }}
-                  </p>
-                  <p v-if="!caseAnalyses.length" class="empty">
-                    {{ t('Aucun email analysé pour ce dossier.') }}
-                  </p>
-                  <a
-                    v-for="a in caseAnalyses"
-                    :key="a.id"
-                    class="case-row"
-                    :href="'/analyses/' + a.id"
-                    @click="followLink($event, '/analyses/' + a.id)"
-                  >
-                    <div>
-                      <strong>{{ a.subject || a.filename }}</strong
-                      ><small>{{ a.filename }} · {{ formatDate(a.created_at) }}</small>
-                    </div>
-                    <span class="badge" :data-state="a.status">{{ labels[a.status] }}</span
-                    ><span>↗</span></a
-                  ><PaginationControls
-                    v-bind="scopedAnalyses"
-                    :busy="busy"
-                    @change="(p) => act(() => loadCaseAnalyses(p))"
-                  />
-                </section>
-              </div>
-              <OperationalFollowup
-                v-if="caseView === 'followup'"
-                :case-id="selected.id"
-                :request="api"
-                :can-write="!!writer"
-                :users="users"
-              />
-              <IntelligenceWorkspace
-                v-if="caseView === 'intelligence'"
-                :case-id="selected.id"
-                :request="api"
-                :can-write="!!writer"
-              />
-              <div v-if="caseView === 'journal'" class="dashboard-grid">
-                <section class="panel">
-                  <h2>{{ t('Notes d’investigation') }}</h2>
-                  <form v-if="writer" @submit.prevent="addNote">
-                    <label>
-                      {{ t('Nouvelle note') }}
-                      <textarea
-                        v-model="note"
-                        rows="3"
-                        required
-                        maxlength="20000"
-                      ></textarea></label
-                    ><button class="primary" :disabled="busy">{{ t('Ajouter la note') }}</button>
-                  </form>
-                  <article v-for="n in selected.notes" :key="n.id" class="note">
-                    <small>{{ n.username }} · {{ formatDate(n.created_at) }}</small>
-                    <p>{{ n.body }}</p>
-                  </article>
-                  <p v-if="!selected.notes?.length" class="muted small">
-                    {{ t('Aucune note pour le moment.') }}
-                  </p>
-                </section>
-                <section class="panel">
-                  <h2>{{ t('Chronologie') }}</h2>
-                  <div v-for="e in eventPage.items" :key="e.id" class="timeline">
-                    <i></i>
-                    <div>
-                      <strong>{{ t(eventMessages[e.action || ''] || e.action || '') }}</strong
-                      ><small>{{ e.username }} · {{ formatDate(e.created_at) }}</small>
-                    </div>
-                  </div>
-                  <PaginationControls
-                    v-bind="eventPage"
-                    :busy="busy"
-                    @change="(p) => act(() => loadCaseEvents(p))"
-                  />
-                </section>
-              </div>
-            </template>
-            <template v-else>
-              <div class="folio-tabs">
-                <button :class="{ active: caseScope === 'mine' }" @click="changeCaseScope('mine')">
-                  {{ t('Mes dossiers') }}</button
-                ><button :class="{ active: caseScope === 'team' }" @click="changeCaseScope('team')">
-                  {{ t('Équipe') }}
-                </button>
-              </div>
-              <form class="filters" @submit.prevent="listPage(1)">
-                <input
-                  v-model="query"
-                  :aria-label="t('Rechercher un dossier')"
-                  :placeholder="t('Rechercher un dossier…')"
-                /><select
-                  v-model="caseStatus"
-                  :aria-label="t('Filtrer par statut')"
-                  @change="listPage(1)"
-                >
-                  <option value="">{{ t('Tous les statuts') }}</option>
-                  <option
-                    v-for="s in ['open', 'investigating', 'resolved', 'closed']"
-                    :value="s"
-                    :key="s"
-                  >
-                    {{ labels[s] }}
-                  </option></select
-                ><button class="secondary">{{ t('Rechercher') }}</button>
-              </form>
-              <div class="panel table-wrap">
-                <table v-responsive-table>
-                  <thead>
-                    <tr>
-                      <th>{{ t('Dossier') }}</th>
-                      <th>{{ t('Statut') }}</th>
-                      <th>{{ t('Priorité') }}</th>
-                      <th>{{ t('Responsable') }}</th>
-                      <th>{{ t('Analyses') }}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="c in cases" :key="c.id">
-                      <td>
-                        <a
-                          class="text-link"
-                          :href="'/cases/' + c.id"
-                          @click="followLink($event, '/cases/' + c.id)"
-                        >
-                          <small>#{{ c.id }}</small> {{ c.title }}
-                        </a>
-                      </td>
-                      <td>
-                        <span class="badge" :data-state="c.status">{{ labels[c.status] }}</span>
-                      </td>
-                      <td>
-                        <span class="badge" :data-state="c.priority">{{ labels[c.priority] }}</span>
-                      </td>
-                      <td>{{ c.assignee || t('Non assigné') }}</td>
-                      <td>{{ c.analysis_count }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p v-if="!cases.length" class="empty">{{ t('Aucun dossier trouvé.') }}</p>
-                <PaginationControls v-bind="casePage" :busy="busy" @change="listPage" /></div
-            ></template>
           </template>
           <section v-if="tab === 'analyses' && !report" class="panel table-wrap">
             <form class="filters" @submit.prevent="listPage(1)">
@@ -1631,7 +1262,7 @@ onUnmounted(() => {
               <thead>
                 <tr>
                   <th>{{ t('Email') }}</th>
-                  <th>{{ t('Dossier') }}</th>
+                  <th>{{ t('Sélection') }}</th>
                   <th>{{ t('État') }}</th>
                   <th>{{ t('Date') }}</th>
                   <th></th>
@@ -1644,12 +1275,13 @@ onUnmounted(() => {
                     ><small class="block">{{ a.filename }}</small>
                   </td>
                   <td>
-                    <a
-                      class="text-link"
-                      :href="'/cases/' + a.case_id"
-                      @click="followLink($event, '/cases/' + a.case_id)"
-                      >#{{ a.case_id }}</a
-                    >
+                    <input
+                      v-if="writer"
+                      v-model="selectedEmailIds"
+                      type="checkbox"
+                      :value="a.id"
+                      :aria-label="t('Sélectionner cet email')"
+                    />
                   </td>
                   <td>
                     <span class="badge" :data-state="a.status">{{ labels[a.status] }}</span>
@@ -1667,19 +1299,19 @@ onUnmounted(() => {
               </tbody>
             </table>
             <p v-if="!analyses.length" class="empty">
-              {{
-                t(
-                  'Déposez un email dans « Analyser un email » : son dossier sera créé automatiquement.'
-                )
-              }}
+              {{ t('Déposez un email : il sera conservé et analysé directement.') }}
             </p>
-            <PaginationControls v-bind="analysisPage" :busy="busy" @change="listPage" />
+            <EmailCampaignPicker
+              :analysis-ids="selectedEmailIds"
+              :request="api"
+              :can-write="!!writer"
+            /><PaginationControls v-bind="analysisPage" :busy="busy" @change="listPage" />
           </section>
           <template v-if="tab === 'iocs'"
             ><form class="filters" @submit.prevent="listPage(1)">
               <input
                 v-model="query"
-                :aria-label="t('Rechercher un IOC')"
+                :aria-label="t('Rechercher un IoC')"
                 :placeholder="t('Domaine, URL, IP, email, empreinte…')"
               /><button class="secondary">{{ t('Rechercher') }}</button>
             </form>
@@ -1688,7 +1320,7 @@ onUnmounted(() => {
                 <thead>
                   <tr>
                     <th>{{ t('Type') }}</th>
-                    <th>{{ t('Indicateur') }}</th>
+                    <th>{{ t('IoC') }}</th>
                     <th>{{ t('Qualification') }}</th>
                     <th>{{ t('Présence') }}</th>
                   </tr>
@@ -1703,7 +1335,7 @@ onUnmounted(() => {
                       <select
                         :value="i.verdict"
                         :disabled="!writer || busy"
-                        :aria-label="t('Qualification de l’IOC')"
+                        :aria-label="t('Qualification de l’IoC')"
                         @change="verdict(i, $event)"
                       >
                         <option
@@ -1721,7 +1353,7 @@ onUnmounted(() => {
                         :href="'/iocs/' + i.id"
                         @click="followLink($event, '/iocs/' + i.id)"
                       >
-                        {{ i.case_count }} {{ t('dossier(s) ·') }} {{ i.analysis_count }}
+                        {{ i.analysis_count }}
                         {{ t('analyse(s)') }}
                       </a>
                     </td>
@@ -1729,14 +1361,14 @@ onUnmounted(() => {
                 </tbody>
               </table>
               <p v-if="!iocs.length" class="empty">
-                {{ t('Les indicateurs apparaîtront après l’analyse de vos emails.') }}
+                {{ t('Les IoC apparaîtront après l’analyse de vos emails.') }}
               </p>
               <PaginationControls v-bind="iocPage" :busy="busy" @change="listPage" />
             </section>
             <section v-if="occurrences" class="panel">
               <div class="panel-title">
                 <h2>
-                  {{ selectedIoc ? defang(selectedIoc.value) : t('Présence de l’indicateur') }}
+                  {{ selectedIoc ? defang(selectedIoc.value) : t('Présence de l’IoC') }}
                 </h2>
                 <button @click="navigate('iocs')">{{ t('Fermer') }}</button>
               </div>
@@ -1753,10 +1385,10 @@ onUnmounted(() => {
               <div v-for="o in occurrences" :key="o.id" class="case-row">
                 <a
                   class="text-link"
-                  :href="'/cases/' + o.case_id"
-                  @click="followLink($event, '/cases/' + o.case_id)"
+                  :href="'/analyses/' + o.id"
+                  @click="followLink($event, '/analyses/' + o.id)"
                 >
-                  #{{ o.case_id }} · {{ o.title }}</a
+                  {{ o.filename }}</a
                 ><a
                   class="text-link"
                   :href="'/analyses/' + o.id"

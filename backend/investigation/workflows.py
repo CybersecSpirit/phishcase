@@ -32,14 +32,14 @@ def initialize_workflows(conn):
         conn.execute("ALTER TABLE cases ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS case_actions (
-          id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES cases(id),
+          id INTEGER PRIMARY KEY, case_id INTEGER REFERENCES cases(id),
           title TEXT NOT NULL, owner_id INTEGER REFERENCES users(id), due_date TEXT,
           status TEXT NOT NULL DEFAULT 'todo', proof TEXT NOT NULL DEFAULT '',
           revision INTEGER NOT NULL DEFAULT 1, created_by INTEGER NOT NULL REFERENCES users(id),
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE INDEX IF NOT EXISTS actions_case ON case_actions(case_id,status,due_date);
         CREATE TABLE IF NOT EXISTS reporter_replies (
-          id INTEGER PRIMARY KEY, case_id INTEGER NOT NULL REFERENCES cases(id),
+          id INTEGER PRIMARY KEY, case_id INTEGER REFERENCES cases(id),
           analysis_id TEXT REFERENCES analyses(id), recipient TEXT NOT NULL, subject TEXT NOT NULL,
           body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', revision INTEGER NOT NULL DEFAULT 1,
           created_by INTEGER NOT NULL REFERENCES users(id), sent_by INTEGER REFERENCES users(id),
@@ -107,6 +107,28 @@ def guard_closure(conn, case_id):
         )
 
 
+def workflow_scope(conn, case_id=None, campaign_id=None, analysis_id=None):
+    if campaign_id is not None:
+        from .collections import campaign
+
+        context = campaign(conn, campaign_id)
+        if (
+            analysis_id is not None
+            and not conn.execute(
+                "SELECT analysis_id FROM campaign_analyses WHERE campaign_id=? AND analysis_id=?",
+                (campaign_id, analysis_id),
+            ).fetchone()
+        ):
+            raise HTTPException(422, "Le mail doit appartenir à cette campagne")
+        return context
+    if analysis_id is not None:
+        _exists(conn, "analyses", analysis_id, "Analyse introuvable")
+        return {"status": "active"}
+    if case_id is not None:
+        return _exists(conn, "cases", case_id, "Dossier introuvable")
+    raise HTTPException(422, "Un mail ou une campagne est requis")
+
+
 class ActionInput(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     owner_id: int | None = None
@@ -134,7 +156,7 @@ def all_actions(
         return _page(
             conn,
             ACTION_SELECT
-            + " JOIN cases c ON c.id=a.case_id WHERE (?='team' OR a.owner_id=?) AND (?='' OR a.status=?) ORDER BY a.updated_at DESC,a.id DESC",
+            + " LEFT JOIN cases c ON c.id=a.case_id WHERE (?='team' OR a.owner_id=?) AND (?='' OR a.status=?) ORDER BY a.updated_at DESC,a.id DESC",
             (scope, user["id"], status, status),
             max(1, page),
             50,
@@ -154,19 +176,26 @@ def actions(case_id: int, user: User):
 
 
 @router.post("/cases/{case_id}/actions", status_code=201)
-def create_action(case_id: int, data: ActionInput, user: Writer):
+def create_action(
+    case_id: int | None,
+    data: ActionInput,
+    user: Writer,
+    campaign_id: int | None = None,
+    analysis_id: str | None = None,
+):
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        case = _exists(conn, "cases", case_id, "Dossier introuvable")
-        if case["status"] == "closed":
-            raise HTTPException(409, "Rouvrez le dossier avant de créer une action")
+        context = workflow_scope(conn, case_id, campaign_id, analysis_id)
+        if context["status"] == "closed":
+            raise HTTPException(409, "Rouvrez la campagne avant de créer une action")
         validate_owner(conn, data.owner_id)
         if data.status in {"done", "cancelled"} and not data.proof.strip():
             raise HTTPException(
-                422, "Documentez le résultat ou le motif de l’annulation"  # noqa: RUF001
+                422,
+                "Documentez le résultat ou le motif de l’annulation",  # noqa: RUF001
             )
         cursor = conn.execute(
-            "INSERT INTO case_actions(case_id,title,owner_id,due_date,status,proof,created_by) VALUES (?,?,?,?,?,?,?)",
+            "INSERT INTO case_actions(case_id,title,owner_id,due_date,status,proof,created_by,campaign_id,analysis_id) VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 case_id,
                 data.title,
@@ -175,6 +204,8 @@ def create_action(case_id: int, data: ActionInput, user: Writer):
                 data.status,
                 data.proof,
                 user["id"],
+                campaign_id,
+                analysis_id,
             ),
         )
         audit(conn, user["id"], "action.created", case_id, str(cursor.lastrowid))
@@ -196,13 +227,16 @@ def update_action(action_id: int, data: ActionInput, user: Writer):
             raise HTTPException(404, "Action introuvable")
         if data.revision != row["revision"]:
             conflict()
-        case = _exists(conn, "cases", row["case_id"], "Dossier introuvable")
-        if case["status"] == "closed":
-            raise HTTPException(409, "Rouvrez le dossier avant de modifier une action")
+        context = workflow_scope(
+            conn, row["case_id"], row["campaign_id"], row["analysis_id"]
+        )
+        if context["status"] == "closed":
+            raise HTTPException(409, "Rouvrez la campagne avant de modifier une action")
         validate_owner(conn, data.owner_id)
         if data.status in {"done", "cancelled"} and not data.proof.strip():
             raise HTTPException(
-                422, "Documentez le résultat ou le motif de l’annulation"  # noqa: RUF001
+                422,
+                "Documentez le résultat ou le motif de l’annulation",  # noqa: RUF001
             )
         conn.execute(
             "UPDATE case_actions SET title=?,owner_id=?,due_date=?,status=?,proof=?,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -216,7 +250,11 @@ def update_action(action_id: int, data: ActionInput, user: Writer):
             ),
         )
         audit(
-            conn, user["id"], "action.updated", row["case_id"], data.model_dump_json()
+            conn,
+            user["id"],
+            "action.updated",
+            row["case_id"],
+            json.dumps({"action_id": action_id, "data": data.model_dump(mode="json")}),
         )
         return dict(
             conn.execute(ACTION_SELECT + " WHERE a.id=?", (action_id,)).fetchone()
@@ -292,18 +330,20 @@ def replies(case_id: int, user: User):
 
 
 @router.post("/cases/{case_id}/replies", status_code=201)
-def create_reply(case_id: int, data: ReplyInput, user: Writer):
+def create_reply(
+    case_id: int | None, data: ReplyInput, user: Writer, campaign_id: int | None = None
+):
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        _exists(conn, "cases", case_id, "Dossier introuvable")
+        workflow_scope(conn, case_id, campaign_id, data.analysis_id)
         if data.analysis_id:
             analysis = _exists(
                 conn, "analyses", data.analysis_id, "Analyse introuvable"
             )
-            if analysis["case_id"] != case_id:
+            if case_id is not None and analysis["case_id"] != case_id:
                 raise HTTPException(422, "Le message doit appartenir à ce dossier")
         cursor = conn.execute(
-            "INSERT INTO reporter_replies(case_id,analysis_id,recipient,subject,body,created_by) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO reporter_replies(case_id,analysis_id,recipient,subject,body,created_by,campaign_id) VALUES (?,?,?,?,?,?,?)",
             (
                 case_id,
                 data.analysis_id,
@@ -311,6 +351,7 @@ def create_reply(case_id: int, data: ReplyInput, user: Writer):
                 data.subject,
                 data.body,
                 user["id"],
+                campaign_id,
             ),
         )
         audit(conn, user["id"], "reply.drafted", case_id, str(cursor.lastrowid))
@@ -336,11 +377,14 @@ def update_reply(reply_id: int, data: ReplyInput, user: Writer):
             raise HTTPException(
                 409, "Cette réponse a déjà été transmise ou son envoi reste à vérifier"
             )
+        workflow_scope(conn, row["case_id"], row["campaign_id"], data.analysis_id)
+        if row["analysis_id"] and data.analysis_id != row["analysis_id"]:
+            raise HTTPException(422, "Le mail de cette réponse ne peut pas être changé")
         if data.analysis_id:
             analysis = _exists(
                 conn, "analyses", data.analysis_id, "Analyse introuvable"
             )
-            if analysis["case_id"] != row["case_id"]:
+            if row["case_id"] is not None and analysis["case_id"] != row["case_id"]:
                 raise HTTPException(422, "Le message doit appartenir à ce dossier")
         conn.execute(
             "UPDATE reporter_replies SET recipient=?,subject=?,body=?,analysis_id=?,status='draft',reconciliation_proof='',resolved_by=NULL,resolved_at=NULL,transport_error=NULL,revision=revision+1,updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -559,6 +603,11 @@ def save_intelligence(data, user, identity=None):
                 (*values, identity),
             )
         audit(conn, user["id"], "intelligence.documented", data.case_id, str(identity))
+        if data.campaign_id is not None:
+            conn.execute(
+                "INSERT INTO campaign_events(campaign_id,event_id) VALUES (?,last_insert_rowid())",
+                (data.campaign_id,),
+            )
         return dict(
             conn.execute(
                 "SELECT * FROM intelligence_links WHERE id=?", (identity,)

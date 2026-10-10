@@ -19,6 +19,7 @@ from .auth import (
     secure_cookie,
     throttle,
 )
+from .collections import router as collections_router
 from .dkim_api import router as dkim_router
 from .enrichment_api import router as enrichment_router
 from .exports import router as exports_router
@@ -37,6 +38,7 @@ router.include_router(tokens_router)
 router.include_router(exports_router)
 router.include_router(enrichment_router)
 router.include_router(dkim_router)
+router.include_router(collections_router)
 router.include_router(investigations_router)
 router.include_router(workflows_router)
 
