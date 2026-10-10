@@ -2,7 +2,6 @@ import asyncio
 import os
 import tempfile
 import unittest
-from datetime import UTC, datetime
 from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
