@@ -2,7 +2,7 @@
 @font-face{font-family:'IBM Plex Sans';src:url('./fonts/PlexSans-Regular.ttf') format('truetype');font-style:normal;font-weight:400;font-display:swap}
 @font-face{font-family:'IBM Plex Sans';src:url('./fonts/PlexSans-Medium.ttf') format('truetype');font-style:normal;font-weight:500 700;font-display:swap}
 @font-face{font-family:'IBM Plex Mono';src:url('./fonts/PlexMono-Regular.ttf') format('truetype');font-style:normal;font-weight:400;font-display:swap}
-:root{--folio-paper:#F1F0E9;--folio-surface:#FAFAF6;--folio-ink:#262925;--folio-muted:#676D64;--folio-line:#CDCEC3;--folio-signal:#E3F36A;--folio-signal-soft:#E7E8DB;--folio-danger:#994A35;--folio-danger-soft:#F1E5DE;--folio-success:#416048;--folio-success-soft:#E7EBDE;--folio-warning:#715B2B;--folio-warning-soft:#EEE9D8;--folio-font:'IBM Plex Sans',sans-serif;--folio-mono:'IBM Plex Mono',monospace;--folio-focus:#506136;--folio-radius:0px;color-scheme:light}
+:root{--folio-paper:#F1F0E9;--folio-surface:#FAFAF6;--folio-ink:#262925;--folio-muted:#596572;--folio-line:#CDD7DF;--folio-signal:#7599BA;--folio-signal-soft:#E7EEF4;--folio-danger:#994A35;--folio-danger-soft:#F1E5DE;--folio-success:#416048;--folio-success-soft:#E7EBDE;--folio-warning:#715B2B;--folio-warning-soft:#EEE9D8;--folio-font:'IBM Plex Sans',sans-serif;--folio-mono:'IBM Plex Mono',monospace;--folio-focus:#3E6588;--folio-radius:0px;color-scheme:light}
 body{font-family:var(--folio-font);color:var(--folio-ink);background:var(--folio-paper);font-size:14px;line-height:1.55}
 button,input,select,textarea{font:inherit}
 button,a,input,select,textarea{touch-action:manipulation}
@@ -37,10 +37,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .folio-panel p{color:var(--folio-muted)}
 .folio-panel.ink{background:var(--folio-ink);padding:28px;color:var(--folio-surface);border-color:var(--folio-ink)}
 .folio-panel.ink h2,.folio-panel.ink h3{color:var(--folio-surface)}
-.folio-panel.ink p,.folio-panel.ink .folio-meta{color:#BFC7B4}
+.folio-panel.ink p,.folio-panel.ink .folio-meta{color:#CCDBE8}
 .folio-panel.ink .folio-button{background:var(--folio-signal);border-color:var(--folio-signal);color:var(--folio-ink)}
 .folio-field{display:flex;flex-direction:column;gap:7px;margin:0 0 19px;font-size:12px;color:var(--folio-ink)}
-.folio-field input,.folio-field select,.folio-field textarea{border:1px solid #AEB4A1;border-radius:0;background:var(--folio-surface);color:var(--folio-ink);min-height:42px;padding:10px 12px;width:100%;box-sizing:border-box}
+.folio-field input,.folio-field select,.folio-field textarea{border:1px solid #8A9CAA;border-radius:0;background:var(--folio-surface);color:var(--folio-ink);min-height:42px;padding:10px 12px;width:100%;box-sizing:border-box}
 .folio-field textarea{min-height:125px;resize:vertical}
 .folio-field input::placeholder,.folio-field textarea::placeholder{color:var(--folio-muted);opacity:1}
 .folio-field small,.folio-hint{color:var(--folio-muted);font-size:11px;line-height:1.6}
@@ -62,11 +62,11 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .folio-tabs{display:flex;gap:24px;overflow-x:auto;border-bottom:1px solid var(--folio-line);margin-bottom:24px}
 .folio-tabs button,.folio-tabs a{border:0;border-bottom:2px solid transparent;background:transparent;padding:13px 0;min-height:44px;border-radius:0;color:var(--folio-muted);font-size:12px;white-space:nowrap;text-decoration:none}
 .folio-tabs button[aria-selected='true'],.folio-tabs .active{color:var(--folio-ink);border-bottom-color:var(--folio-ink)}
-.folio-upload{display:block;border:1px dashed #879478;padding:26px;background:#EAECDF;border-radius:0;box-shadow:none}
+.folio-upload{display:block;border:1px dashed #7599BA;padding:26px;background:#EDF2F6;border-radius:0;box-shadow:none}
 .folio-upload h2{font-size:27px;letter-spacing:-.7px;font-weight:400;margin:0 0 12px}
 .folio-upload p{color:var(--folio-muted)}
 .folio-empty{border-top:1px solid var(--folio-line);border-bottom:1px solid var(--folio-line);padding:32px 0;color:var(--folio-muted)}
-.folio-proof{display:block;border-bottom:1px solid #68715E;padding:20px 0}
+.folio-proof{display:block;border-bottom:1px solid #73889B;padding:20px 0}
 .folio-proof strong{font-size:15px;font-weight:500}
 .folio-proof p{font-size:12px;margin:7px 0 0;overflow-wrap:anywhere}
 .folio-sequence{border-top:1px solid var(--folio-ink)}
@@ -86,7 +86,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .folio-auth{display:grid;grid-template-columns:1fr 1fr;min-height:100vh;background:var(--folio-surface)}
 .folio-auth-brand{display:flex;flex-direction:column;gap:20px;padding:60px;background:var(--folio-ink);color:var(--folio-surface)}
 .folio-auth-brand h1{font-size:46px;line-height:1.1;font-weight:400;letter-spacing:-1.6px;margin-top:80px}
-.folio-auth-brand p{max-width:420px;color:#BFC7B4}
+.folio-auth-brand p{max-width:420px;color:#CCDBE8}
 .folio-auth-form{align-self:center;justify-self:center;width:100%;max-width:390px;padding:40px;box-sizing:border-box}
 .folio-auth-form h2{font-size:32px;line-height:1.2;font-weight:400;letter-spacing:-.7px}
 .folio-dialog{background:var(--folio-surface);color:var(--folio-ink);border:1px solid var(--folio-ink);border-radius:0;max-width:720px;padding:30px;box-shadow:none}
@@ -94,3 +94,6 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 @media(max-width:1000px){.folio-mast{padding-inline:24px}.folio-nav{padding-inline:24px;gap:23px}.folio-main{padding-inline:24px}.folio-grid-wide{grid-template-columns:minmax(0,1fr) 280px}.folio-auth-brand{padding:36px}}
 @media(max-width:720px){.folio-mast{padding:18px;min-height:70px;gap:15px;flex-wrap:wrap}.folio-brand{font-size:25px}.folio-context{font-size:9px}.folio-nav{padding-inline:18px;gap:22px}.folio-main{padding:26px 18px 50px}.folio-heading{align-items:flex-start;flex-direction:column;gap:18px}.folio-heading h1{font-size:36px;letter-spacing:-1.2px}.folio-grid-two,.folio-grid-wide{grid-template-columns:minmax(0,1fr);gap:25px}.folio-panel.ink{padding:22px}.folio-sequence-row{grid-template-columns:65px minmax(0,1fr)}.folio-sequence-row> :last-child{grid-column:2}.folio-auth{grid-template-columns:minmax(0,1fr)}.folio-auth-brand{padding:26px;gap:12px}.folio-auth-brand h1{margin:22px 0 0;font-size:34px}.folio-auth-form{padding:32px 24px;max-width:440px}.folio-dialog{padding:22px;margin:18px;max-width:calc(100vw - 36px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* Approved identity · 25 October 2026. */
+:root{--brand-blue:#7599BA;--brand-blue-light:#9CB8D1;--brand-blue-wash:#CCDBE8}

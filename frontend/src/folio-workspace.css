@@ -32,7 +32,7 @@
 }
 .phishcase label { color: var(--folio-muted); font-weight: 500; }
 .phishcase input:not([type='checkbox']):not([type='file']), .phishcase textarea, .phishcase select {
-  color: var(--folio-ink); background: var(--folio-surface); border: 1px solid #AEB4A1; border-radius: 0;
+  color: var(--folio-ink); background: var(--folio-surface); border: 1px solid #8A9CAA; border-radius: 0;
   padding: 10px 12px; box-shadow: none; min-height: 42px;
 }
 .phishcase input:focus, .phishcase select:focus, .phishcase textarea:focus { border-color: var(--folio-ink); box-shadow: none; }
@@ -45,14 +45,7 @@
 .phishcase .sidebar-heading { display: flex; min-height: 84px; padding: 20px 38px; align-items: center; }
 .phishcase .sidebar .brand { margin: 0; gap: 13px; font-size: 28px; font-weight: 500; color: var(--folio-ink); }
 .phishcase .brand-dot, .phishcase .sidebar nav .nav-symbol { display: none; }
-.phishcase .folio-mark {
-  display: inline-flex; position: relative; align-items: center; justify-content: center;
-  width: 24px; height: 30px; flex: 0 0 24px; border: 1px solid var(--folio-ink); font: 14px var(--folio-mono);
-}
-.phishcase .folio-mark::after {
-  content: ''; position: absolute; right: -1px; top: -1px; width: 8px; height: 8px;
-  background: var(--folio-paper); border-left: 1px solid var(--folio-ink); border-bottom: 1px solid var(--folio-ink);
-}
+.phishcase .brand-symbol { display:block; width:36px; height:36px; flex:0 0 36px; object-fit:contain; }
 .phishcase .sidebar-navigation { display: contents !important; overflow: visible; max-height: none; }
 .phishcase .sidebar-navigation > .eyebrow, .phishcase .mobile-menu-button { display: none; }
 .phishcase .sidebar nav {
@@ -120,7 +113,7 @@
 .phishcase .task-guide > .text-link { padding: 0; }
 .phishcase .folio-guide { margin-top: 10px; }
 .phishcase .dropzone {
-  border: 1px dashed #879478; border-radius: 0; background: #EAECDF; text-align: left;
+  border: 1px dashed #7599BA; border-radius: 0; background: #EDF2F6; text-align: left;
   align-items: flex-start; min-height: 245px; padding: 36px 34px; position: relative; box-shadow: none; gap: 16px;
 }
 .phishcase .dropzone.dragging { border-color: var(--folio-ink); background: var(--folio-signal-soft); box-shadow: none; }
@@ -136,12 +129,12 @@
 .phishcase .reception-ledger { min-width: 0; }
 .phishcase .reception-note { background: var(--folio-ink); color: var(--folio-surface); border-color: var(--folio-ink); padding: 27px 25px; }
 .phishcase .reception-note h2, .phishcase .reception-note h3, .phishcase .reception-note a, .phishcase .reception-note strong { color: var(--folio-surface); }
-.phishcase .reception-note .folio-reference, .phishcase .reception-note .muted, .phishcase .reception-note small { color: #BFC7B4; }
+.phishcase .reception-note .folio-reference, .phishcase .reception-note .muted, .phishcase .reception-note small { color: #CCDBE8; }
 .phishcase .reception-note > h2 { margin-top: 16px; }
 .phishcase .reception-note > .muted { font-size: 12px; margin: 9px 0 15px; }
-.phishcase .reception-note .case-row { border-color: #68715E; }
+.phishcase .reception-note .case-row { border-color: #73889B; }
 .phishcase .reception-note .case-row strong { font-size: 14px; }
-.phishcase .reception-note .case-row small { color: #BFC7B4; }
+.phishcase .reception-note .case-row small { color: #CCDBE8; }
 .phishcase .reception-note .text-link { display: inline-flex; margin-top: 12px; }
 .phishcase .scope-tabs { display: flex; gap: 25px; border-bottom: 1px solid var(--folio-line); margin-bottom: 22px; }
 .phishcase .scope-tabs button, .phishcase .folio-tabs button { padding: 13px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--folio-muted); }
@@ -157,19 +150,19 @@
 .phishcase .neutralized-message pre { min-height: 190px; }
 .phishcase .decision-column { min-width: 0; background: var(--folio-ink); color: var(--folio-surface); padding: 27px 25px; }
 .phishcase .decision-column h2, .phishcase .decision-column h3, .phishcase .decision-column strong { color: var(--folio-surface); }
-.phishcase .decision-column .muted, .phishcase .decision-column label, .phishcase .decision-column small { color: #BFC7B4; }
-.phishcase .assessment-banner, .phishcase .assessment-banner[data-state] { border: 0; border-bottom: 1px solid #68715E; border-radius: 0; padding: 0 0 22px; background: transparent; }
+.phishcase .decision-column .muted, .phishcase .decision-column label, .phishcase .decision-column small { color: #CCDBE8; }
+.phishcase .assessment-banner, .phishcase .assessment-banner[data-state] { border: 0; border-bottom: 1px solid #73889B; border-radius: 0; padding: 0 0 22px; background: transparent; }
 .phishcase .assessment-banner h2 { font-size: 19px; }
-.phishcase .assessment-banner p, .phishcase .assessment-banner small { color: #BFC7B4; font-size: 12px; }
+.phishcase .assessment-banner p, .phishcase .assessment-banner small { color: #CCDBE8; font-size: 12px; }
 .phishcase .human-decision { border: 0; padding: 5px 0 0; background: transparent; margin: 0; }
 .phishcase .human-decision h2 { font-size: 21px; }
-.phishcase .human-decision .note { border-color: #68715E; }
+.phishcase .human-decision .note { border-color: #73889B; }
 .phishcase .human-decision .inline-fields { flex-wrap: wrap; gap: 13px; }
 .phishcase .human-decision .inline-fields > label { flex: 1 1 130px; }
 .phishcase .human-decision .form-grid { gap: 16px; }
 .phishcase .human-decision form > div:last-child { display: flex; gap: 10px; flex-wrap: wrap; }
 .phishcase .human-decision .secondary { color: var(--folio-ink); }
-.phishcase .human-decision .pagination span { color: #BFC7B4; }
+.phishcase .human-decision .pagination span { color: #CCDBE8; }
 .phishcase .report summary { margin: 17px 0; }
 .phishcase .report details { border-color: var(--folio-line); }
 .phishcase .verdict, .phishcase .pagination { border-color: var(--folio-line); }
@@ -195,7 +188,7 @@
 .phishcase .folio-auth-brand { display: flex; justify-content: center; padding: 60px; background: var(--folio-ink); color: var(--folio-surface); }
 .phishcase .folio-auth-brand .folio-brand { color: var(--folio-surface); }
 .phishcase .folio-auth-brand h1 { font-size: 46px; font-weight: 400; color: var(--folio-surface); margin-top: 60px; }
-.phishcase .folio-auth-brand p { color: #BFC7B4; }
+.phishcase .folio-auth-brand p { color: #CCDBE8; }
 .phishcase .login-card { width: 100%; max-width: 440px; background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 40px; align-self: center; justify-self: center; }
 .phishcase .login-card h1 { font-size: 36px; font-weight: 400; margin-top: 13px; }
 .phishcase .login-card .eyebrow { margin-top: 10px; }
@@ -252,6 +245,6 @@
   .phishcase .login-card { padding: 34px 24px; }
   .phishcase .login-card h1 { font-size: 32px; }
 }
-.phishcase .reception-note .eyebrow, .phishcase .reception-note .text-link { color: #BFC7B4; }
+.phishcase .reception-note .eyebrow, .phishcase .reception-note .text-link { color: #CCDBE8; }
 .phishcase .panel.reception-note { padding: 27px 25px; }
 @media (max-width:760px) { .phishcase .panel.reception-note { padding: 20px; } }
