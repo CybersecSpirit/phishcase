@@ -572,7 +572,7 @@ onUnmounted(() => {
     <div v-if="!ready" class="login-shell">{{ t('Chargement de PhishCase…') }}</div>
     <div v-else-if="!user" class="login-shell folio-auth">
       <section class="folio-auth-brand">
-        <p class="folio-brand"><img class="brand-symbol" :src="'/phishcase-mark.svg?v=20261025-pastel'" alt="" width="42" height="42" />PhishCase</p>
+        <p class="folio-brand"><img class="brand-symbol" :src="'/phishcase-mark.svg?v=20261026-mails'" alt="" width="42" height="42" />PhishCase</p>
         <p class="folio-meta">INVESTIGATION / EMAIL</p>
         <h1>{{ t('Chaque message mérite une lecture attentive.') }}</h1>
         <p>
@@ -658,7 +658,7 @@ onUnmounted(() => {
       <aside class="sidebar folio-mast" @keydown.esc="closeMobileMenu">
         <div class="sidebar-heading">
           <a href="/" class="brand" @click.exact.prevent="navigate('intake')"
-            ><img class="brand-symbol" :src="'/phishcase-mark.svg?v=20261025-pastel'" alt="" width="36" height="36" />PhishCase<span class="brand-dot"
+            ><img class="brand-symbol" :src="'/phishcase-mark.svg?v=20261026-mails'" alt="" width="36" height="36" />PhishCase<span class="brand-dot"
               >.</span
             ></a
           >
