@@ -715,5 +715,10 @@ Object.assign(messages, {
   Tag: 'Tag',
   'Le suivi collectif des emails liés, par priorité et responsable.': 'Collective follow-up for related emails, by priority and owner.',
   Résolue: 'Resolved',
-  Close: 'Closed'
+  Close: 'Closed',
+  Copier: 'Copy',
+  'Copié ✓': 'Copied ✓',
+  'Thème : Clair': 'Theme: Light',
+  'Thème : Encre': 'Theme: Ink',
+  'Basculer le thème d’affichage': 'Toggle display theme'
 })

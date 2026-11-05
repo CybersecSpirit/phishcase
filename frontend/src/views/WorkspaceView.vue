@@ -526,8 +526,37 @@ const readableBodies = computed(
     })) ||
     []
 )
+const theme = ref<'light' | 'dark'>('light')
+function applyTheme(value: 'light' | 'dark') {
+  theme.value = value
+  document.documentElement.classList.toggle('theme-dark', value === 'dark')
+  document.documentElement.classList.toggle('theme-light', value !== 'dark')
+  try {
+    localStorage.setItem('phishcase.theme', value)
+  } catch {
+    /* ignore storage restrictions */
+  }
+}
+function toggleTheme() {
+  applyTheme(theme.value === 'dark' ? 'light' : 'dark')
+}
+const copiedValue = ref('')
+async function copyValue(value: string) {
+  try {
+    await navigator.clipboard.writeText(value)
+    copiedValue.value = value
+  } catch {
+    error.value = t('La copie est indisponible. Sélectionnez la valeur neutralisée.')
+  }
+}
 let timer: ReturnType<typeof setInterval> | undefined
 onMounted(async () => {
+  try {
+    const savedTheme = localStorage.getItem('phishcase.theme')
+    if (savedTheme === 'dark' || savedTheme === 'light') applyTheme(savedTheme)
+  } catch {
+    /* default light */
+  }
   await loadExtensions()
   try {
     user.value = await api<User>('/auth/me')
@@ -560,7 +589,7 @@ onUnmounted(() => {
 
 <template>
   <div class="phishcase folio-shell">
-    <div class="language-switch">
+    <div v-if="!user" class="language-switch auth-toolbar">
       <label
         >{{ t('Langue') }}
         <select :value="locale" :aria-label="t('Langue')" @change="changeLanguage">
@@ -568,11 +597,19 @@ onUnmounted(() => {
           <option value="en">English</option>
         </select></label
       >
+      <button
+        type="button"
+        class="theme-toggle"
+        :aria-label="t('Basculer le thème d’affichage')"
+        @click="toggleTheme"
+      >
+        {{ theme === 'dark' ? t('Thème : Encre') : t('Thème : Clair') }}
+      </button>
     </div>
     <div v-if="!ready" class="login-shell">{{ t('Chargement de PhishCase…') }}</div>
     <div v-else-if="!user" class="login-shell folio-auth">
       <section class="folio-auth-brand">
-        <p class="folio-brand">PhishCase</p>
+        <p class="folio-brand"><img class="brand-symbol" :src="'/phishcase-mark.svg?v=20261026-mails'" alt="" width="42" height="42" />PhishCase</p>
         <p class="folio-meta">INVESTIGATION / EMAIL</p>
         <h1>{{ t('Chaque message mérite une lecture attentive.') }}</h1>
         <p>
@@ -658,20 +695,63 @@ onUnmounted(() => {
       <aside class="sidebar folio-mast" @keydown.esc="closeMobileMenu">
         <div class="sidebar-heading">
           <a href="/" class="brand" @click.exact.prevent="navigate('intake')"
-            ><span class="folio-mark" aria-hidden="true">P</span>PhishCase<span class="brand-dot"
+            ><img class="brand-symbol" :src="'/phishcase-mark.svg?v=20261026-mails'" alt="" width="36" height="36" />PhishCase<span class="brand-dot"
               >.</span
             ></a
           >
-          <button
-            ref="mobileMenuButton"
-            class="mobile-menu-button"
-            type="button"
-            aria-controls="workspace-navigation"
-            :aria-expanded="mobileMenuOpen"
-            @click="mobileMenuOpen = !mobileMenuOpen"
-          >
-            {{ mobileMenuOpen ? t('Fermer le menu') : t('Menu') }}
-          </button>
+          <div class="sidebar-controls">
+            <div class="language-switch">
+              <label
+                >{{ t('Langue') }}
+                <select :value="locale" :aria-label="t('Langue')" @change="changeLanguage">
+                  <option value="fr">Français</option>
+                  <option value="en">English</option>
+                </select></label
+              >
+              <button
+                type="button"
+                class="theme-toggle"
+                :aria-pressed="theme === 'dark'"
+                :aria-label="t('Basculer le thème d’affichage')"
+                @click="toggleTheme"
+              >
+                {{ theme === 'dark' ? t('Thème : Encre') : t('Thème : Clair') }}
+              </button>
+            </div>
+            <div class="sidebar-bottom">
+              <div class="avatar">{{ user.username.slice(0, 2).toUpperCase() }}</div>
+              <div>
+                <strong>{{ user.username }}</strong
+                ><small>{{ labels[user.role] }}</small>
+              </div>
+              <ActionMenu label="Profil" class="profile-menu"
+                ><button
+                  v-for="[id, label] in accountTabs"
+                  :key="id"
+                  class="menu-item"
+                  @click="navigate(id!)"
+                >
+                  {{ label }}</button
+                ><a
+                  v-for="link in extensions.navigation"
+                  :key="link.url"
+                  class="menu-item"
+                  :href="link.url"
+                  >{{ t(link.label) }}</a
+                ><button class="menu-item" @click="logout">{{ t('Déconnexion') }}</button></ActionMenu
+              >
+            </div>
+            <button
+              ref="mobileMenuButton"
+              class="mobile-menu-button"
+              type="button"
+              aria-controls="workspace-navigation"
+              :aria-expanded="mobileMenuOpen"
+              @click="mobileMenuOpen = !mobileMenuOpen"
+            >
+              {{ mobileMenuOpen ? t('Fermer le menu') : t('Menu') }}
+            </button>
+          </div>
         </div>
         <div
           id="workspace-navigation"
@@ -704,29 +784,6 @@ onUnmounted(() => {
               </button></ActionMenu
             >
           </nav>
-          <div class="sidebar-bottom">
-            <div class="avatar">{{ user.username.slice(0, 2).toUpperCase() }}</div>
-            <div>
-              <strong>{{ user.username }}</strong
-              ><small>{{ labels[user.role] }}</small>
-            </div>
-            <ActionMenu label="Profil" class="profile-menu"
-              ><button
-                v-for="[id, label] in accountTabs"
-                :key="id"
-                class="menu-item"
-                @click="navigate(id!)"
-              >
-                {{ label }}</button
-              ><a
-                v-for="link in extensions.navigation"
-                :key="link.url"
-                class="menu-item"
-                :href="link.url"
-                >{{ t(link.label) }}</a
-              ><button class="menu-item" @click="logout">{{ t('Déconnexion') }}</button></ActionMenu
-            >
-          </div>
         </div>
       </aside>
       <main class="folio-main">
@@ -973,7 +1030,12 @@ onUnmounted(() => {
             <p>
               <span class="badge" :data-state="report.status">{{ labels[report.status] }}</span>
             </p>
-            <p class="small muted hash">SHA-256 · {{ report.sha256 }}</p>
+            <p class="small muted hash hash-row">
+              <span>SHA-256 · {{ report.sha256 }}</span>
+              <button type="button" class="copy-button" @click="copyValue(report.sha256)">
+                {{ copiedValue === report.sha256 ? t('Copié ✓') : t('Copier') }}
+              </button>
+            </p>
             <p v-if="report.error" class="error">
               {{ errorMessage(report.error, report.error_code) }}
             </p>
@@ -1087,7 +1149,12 @@ onUnmounted(() => {
                     {{ t('Télécharger la pièce jointe') }}
                   </a>
                   <p class="small muted">{{ a.mime_type }} · {{ a.size }} {{ t('octets') }}</p>
-                  <p class="hash small">SHA-256 · {{ a.hash.sha256 }}</p>
+                  <p class="hash small hash-row">
+                    <span>SHA-256 · {{ a.hash.sha256 }}</span>
+                    <button type="button" class="copy-button" @click="copyValue(a.hash.sha256)">
+                      {{ copiedValue === a.hash.sha256 ? t('Copié ✓') : t('Copier') }}
+                    </button>
+                  </p>
                 </article>
               </div>
               <aside class="decision-column">
@@ -1330,7 +1397,18 @@ onUnmounted(() => {
                     <td>
                       <span class="badge">{{ i.kind }}</span>
                     </td>
-                    <td class="ioc-value">{{ defang(i.value) }}</td>
+                    <td class="ioc-value">
+                      <div class="hash-row">
+                        <span>{{ defang(i.value) }}</span>
+                        <button
+                          type="button"
+                          class="copy-button"
+                          @click="copyValue(defang(i.value))"
+                        >
+                          {{ copiedValue === defang(i.value) ? t('Copié ✓') : t('Copier') }}
+                        </button>
+                      </div>
+                    </td>
                     <td>
                       <select
                         :value="i.verdict"

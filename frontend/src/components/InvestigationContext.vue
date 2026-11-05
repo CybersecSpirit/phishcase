@@ -303,7 +303,12 @@ watch(
         class="note signal-context"
       >
         <h3>{{ attachment.filename }}</h3>
-        <code class="hash">{{ attachment.sha256 }}</code>
+        <div class="hash-row">
+          <code class="hash">{{ attachment.sha256 }}</code>
+          <button type="button" class="copy-button" @click="copy(attachment.sha256)">
+            {{ copied === attachment.sha256 ? t('Copié ✓') : t('Copier') }}
+          </button>
+        </div>
         <p v-if="attachment.ioc_id">
           <a
             :href="'/iocs/' + attachment.ioc_id"
